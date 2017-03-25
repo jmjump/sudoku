@@ -120,8 +120,7 @@ int main (int argc, char* argv[]) {
 		testPermutator();
 	}
 
-	int n = 3;
-	g_solver = new SudokuSolver(n);
+	g_solver = new SudokuSolver();
 
 	if (optind < argc) {
         const char* filename = argv[optind];
@@ -129,7 +128,7 @@ int main (int argc, char* argv[]) {
 		g_solver->print();
 		if (runSolver) {
 			g_solver->solve();
-exit(0);
+			exit(0);
 		}
 	}
 

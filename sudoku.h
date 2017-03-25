@@ -10,6 +10,9 @@
 
 ////////////////////////////////////////////////////////////////////////////////
 
+#define g_n								3 // Boxes are 3x3
+#define g_N								(g_n * g_n)	// 9 cells in a row, col or box
+
 class Cell;
 typedef std::vector<Cell*>				CellVector;
 typedef CellVector::iterator			CellVectorIterator;
@@ -43,14 +46,11 @@ typedef enum {
 
 class Cell {
 	public:
-										Cell (int N, int row, int col) {
-											m_N = N;
+										Cell (int row, int col) {
 											m_row = row;
 											m_col = col;
 
 											m_name = makeString("R%dC%d", m_row+1, m_col+1);
-
-											m_possibles = (bool*) malloc(m_N * sizeof(bool));
 
 											for (int i=0; i<NUM_COLLECTIONS; i++) {
 												m_cellSets[i] = NULL;
@@ -60,13 +60,12 @@ class Cell {
 										}
 
 										~Cell () {
-											free(m_possibles);
 										}
 
 		void							reset () {
 											m_known = false;
 
-											for (int i=0; i<m_N; i++) {
+											for (int i=0; i<g_N; i++) {
 												m_possibles[i] = true;
 											}
 										}
@@ -122,13 +121,12 @@ class Cell {
 
 	protected:
 		std::string						m_name;
-		int								m_N;
 		int								m_row;
 		int								m_col;
 		bool							m_known;
 		int								m_value;
 
-		bool*							m_possibles;
+		bool							m_possibles[g_N];
 
 		// This cell is part of 3 collections:
 		// 1) a row
@@ -142,7 +140,7 @@ class Cell {
 
 class CellSet {
 	public:
-										CellSet (CollectionType type, std::string name, int n);
+										CellSet (CollectionType type, std::string name);
 										~CellSet () {
 										}
 
@@ -191,31 +189,27 @@ class CellSet {
 		CollectionType					m_type;
 		std::string						m_name;
 
-		int								m_n;
-		int								m_N;
 		CellVector						m_cells;
-		bool							m_isTaken[9]; // TBD:
+		bool							m_isTaken[g_N];
 };
 
 ////////////////////////////////////////////////////////////////////////////////
 
 class AllCellSets {
 	public:
-										AllCellSets (CollectionType type, std::string name, int n) {
+										AllCellSets (CollectionType type, std::string name) {
 											m_type = type;
 											m_name = makeString("All%ss", name.c_str());
-											m_n = n;
-											m_N = n * n;
 
-											m_cellSets.resize(m_N);
+											m_cellSets.resize(g_N);
 
-											for (int i=0; i<m_N; i++) {
-												m_cellSets[i] = new CellSet(m_type, makeString("%s%d", name.c_str(), i+1), m_n);
+											for (int i=0; i<g_N; i++) {
+												m_cellSets[i] = new CellSet(m_type, makeString("%s%d", name.c_str(), i+1));
 											}
 										}
 
 										virtual ~AllCellSets () {
-											for (int i=0; i<m_N; i++) {
+											for (int i=0; i<g_N; i++) {
 												delete m_cellSets[i];
 											}
 										}
@@ -252,8 +246,6 @@ class AllCellSets {
 		CollectionType					m_type;
 
 		std::string						m_name;
-		int								m_n;
-		int								m_N;
 		CellSetVector					m_cellSets;
 };
 
@@ -261,7 +253,7 @@ class AllCellSets {
 
 class AllRows : public AllCellSets {
 	public:
-										AllRows (int n) : AllCellSets(ROW_COLLECTION, "Row", n) { }
+										AllRows (int n) : AllCellSets(ROW_COLLECTION, "Row") { }
 
 		int								getIndex1 (int row, int col) { return row; }
 		int								getIndex2 (int row, int col) { return col; }
@@ -271,7 +263,7 @@ class AllRows : public AllCellSets {
 
 class AllCols : public AllCellSets {
 	public:
-										AllCols (int n) : AllCellSets(COL_COLLECTION, "Col", n) { }
+										AllCols (int n) : AllCellSets(COL_COLLECTION, "Col") { }
 
 		int								getIndex1 (int row, int col) { return col; }
 		int								getIndex2 (int row, int col) { return row; }
@@ -281,22 +273,22 @@ class AllCols : public AllCellSets {
 
 class AllBoxes : public AllCellSets {
 	public:
-										AllBoxes (int n) : AllCellSets(BOX_COLLECTION, "Box", n) { }
+										AllBoxes (int n) : AllCellSets(BOX_COLLECTION, "Box") { }
 
 		int								getIndex1 (int row, int col) {
-											int rowBase = row / m_n;
-											int colBase = col / m_n;
+											int rowBase = row / g_n;
+											int colBase = col / g_n;
 
-											int index = (rowBase * m_n) + colBase;
+											int index = (rowBase * g_n) + colBase;
 
 											return index;
 										}
 
 		int								getIndex2 (int row, int col) {
-											int rowBase = row % m_n;
-											int colBase = col % m_n;
+											int rowBase = row % g_n;
+											int colBase = col % g_n;
 
-											int index = (rowBase * m_n) + colBase;
+											int index = (rowBase * g_n) + colBase;
 
 											return index;
 										}
@@ -310,13 +302,9 @@ class AllBoxes : public AllCellSets {
 class AllCells {
 	public:
 										AllCells (int n) {
-											m_n = n;
-											m_N = n * n;
-											m_cells = (Cell**) malloc(m_N * m_N * sizeof(Cell*));
-
-											for (int row=0; row<m_N; row++) {
-												for (int col=0; col<m_N; col++) {
-													Cell* cell = new Cell(m_N, row, col);
+											for (int row=0; row<g_N; row++) {
+												for (int col=0; col<g_N; col++) {
+													Cell* cell = new Cell(row, col);
 
 													int index = getIndex(row, col);
 													m_cells[index] = cell;
@@ -325,7 +313,6 @@ class AllCells {
 										}
 
 										~AllCells () {
-											free(m_cells);
 										}
 
 		Cell*							getCell (int row, int col) {
@@ -339,21 +326,9 @@ class AllCells {
 											cell->setValue(value);
 										}
 
-/*
-PLEASE DELETE ME
-		void							reset () {
-											for (int row=0; row<m_N; row++) {
-												for (int col=0; col<m_N; col++) {
-													Cell* cell = getCell(row, col);
-													cell->reset();
-												}
-											}
-										}
-*/
-
 		bool							isSolved () {
-											for (int row=0; row<m_N; row++) {
-												for (int col=0; col<m_N; col++) {
+											for (int row=0; row<g_N; row++) {
+												for (int col=0; col<g_N; col++) {
 													Cell* cell = getCell(row, col);
 
 													if (!cell->getKnown()) {
@@ -367,26 +342,24 @@ PLEASE DELETE ME
 
 	protected:
 		int								getIndex (int row, int col) {
-											return (row * m_N) + col;
+											return (row * g_N) + col;
 										}
 
-		int								m_n;
-		int								m_N;
-		Cell**							m_cells;
+		Cell*							m_cells[g_N * g_N];
 };
 
 ////////////////////////////////////////////////////////////////////////////////
 
 class SudokuSolver {
 	public:
-						SudokuSolver (int n) : m_n(n), m_N(n*n), m_allCells(n), m_allRows(n), m_allCols(n), m_allBoxes(n) {
+						SudokuSolver () : m_allCells(g_n), m_allRows(g_n), m_allCols(g_n), m_allBoxes(g_n) {
 							m_allCellSets[ROW_COLLECTION] = &m_allRows;
 							m_allCellSets[COL_COLLECTION] = &m_allCols;
 							m_allCellSets[BOX_COLLECTION] = &m_allBoxes;
 
 							// initialize the collections
-							for (int row=0; row<m_N; row++) {
-								for (int col=0; col<m_N; col++) {
+							for (int row=0; row<g_N; row++) {
+								for (int col=0; col<g_N; col++) {
 									Cell* cell = m_allCells.getCell(row, col);
 
 									for (int i=0; i<NUM_COLLECTIONS; i++) {
@@ -414,9 +387,6 @@ class SudokuSolver {
 		bool			validate ();
 
 	protected:
-		int				m_n;
-		int				m_N;
-
 		AllCells		m_allCells;
 
 		AllRows			m_allRows;
