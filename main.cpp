@@ -93,6 +93,22 @@ static void processRun (CLI* cli) {
 	g_solver->solve();
 }
 
+static void processAlgorithm (CLI* cli) {
+	int alg = cli->getIntParameter(false, -1);
+
+printf("alg=%d\n", alg);
+	if (alg == -1) {
+		g_solver->listAlgorithms();
+	} else {
+printf("run alg=%d\n", alg);
+		g_solver->runAlgorithm((AlgorithmType)alg);
+	}
+}
+
+static void processValidate (CLI* cli) {
+	g_solver->validate(1);
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 int main (int argc, char* argv[]) {
@@ -137,7 +153,9 @@ int main (int argc, char* argv[]) {
 	cli.addCommand("game", processGame, "<filename> : load a game from the specified file");
 	cli.addCommand("print", processPrint, "[<detail level>] : print the game board");
 	cli.addCommand("step", processStep, "[<numSteps>] : run the algorithm numSteps times (default=1)");
-	cli.addCommand("run", processRun, ": run the algorithm to completion");
+	cli.addCommand("run", processRun, ": run the solver to completion");
+	cli.addCommand("alg", processAlgorithm, "[<alg>] : run the specified algorithm");
+	cli.addCommand("validate", processValidate, "validate the puzzle");
 
 	cli.processInput(stdin);
 }

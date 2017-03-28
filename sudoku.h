@@ -28,6 +28,7 @@ typedef enum {
 	ALG_CHECK_FOR_HIDDEN_PAIRS,
 	ALG_CHECK_FOR_LOCKED_CANDIDATES,
 	ALG_CHECK_FOR_XWINGS,
+	ALG_CHECK_FOR_YWINGS,
 
 	NUM_ALGORITHMS
 } AlgorithmType;
@@ -49,6 +50,7 @@ class Cell {
 										Cell (int row, int col) {
 											m_row = row;
 											m_col = col;
+											m_box = (row / g_n) + (col / g_n);
 
 											m_name = makeString("R%dC%d", m_row+1, m_col+1);
 
@@ -78,13 +80,8 @@ class Cell {
 											}
 										}
 
-		void							setCellSet (CellSet* cellSet) {
-											for (int i=0; i<NUM_COLLECTIONS; i++) {
-												if (m_cellSets[i] == NULL) {
-													m_cellSets[i] = cellSet;
-													break;
-												}
-											}
+		void							setCellSet (CollectionType collection, CellSet* cellSet) {
+											m_cellSets[collection] = cellSet;
 										}
 
 		bool							getKnown () {
@@ -104,6 +101,7 @@ class Cell {
 		bool							checkForNakedReductions (Cell* nakedCell);
 		bool							areAnyOfTheseValuesUntaken (int n, int values[]);
 		bool							hiddenSubsetReduction (int n, int values[]);
+		bool							hiddenSubsetReduction2 (int n, Cell* candidateCells[], int values[]);
 
 										// return true if this cell could have "i" for a value. Otherwise, false
 		bool							getPossible (int i) {
@@ -112,8 +110,16 @@ class Cell {
 
 		bool							tryToReduce (int i);
 
+										// Get the row/col/box
+		int								getRCB (int rcb) {
+											return
+												(rcb == ROW_COLLECTION) ? m_row :
+												(rcb == COL_COLLECTION) ? m_col :
+												m_box;
+										}
 		int								getRow () { return m_row; }
 		int								getCol () { return m_col; }
+		int								getBox () { return m_box; }
 
 		CellSet*						getCellSet (CollectionType collection) { return m_cellSets[collection]; }
 
@@ -123,6 +129,7 @@ class Cell {
 		std::string						m_name;
 		int								m_row;
 		int								m_col;
+		int								m_box;
 		bool							m_known;
 		int								m_value;
 
@@ -140,7 +147,7 @@ class Cell {
 
 class CellSet {
 	public:
-										CellSet (CollectionType type, std::string name);
+										CellSet (CollectionType collection, std::string name);
 										~CellSet () {
 										}
 
@@ -149,7 +156,7 @@ class CellSet {
 		void							setCell (int i, Cell* cell) {
 											m_cells[i] = cell;
 
-											cell->setCellSet(this);
+											cell->setCellSet(m_collection, this);
 										}
 
 		Cell*							getCell (int i) {
@@ -164,9 +171,12 @@ class CellSet {
 		bool							cellInSet (Cell* cell, Cell* cellSet[]);
 		bool							checkForLockedCandidates ();
 		bool							checkForLockedCandidate (int c);
-		bool							checkForLockedCandidate (int c, int i, bool isRow);
-		bool							checkForLock (int c, Cell* boxCells[]);
-		bool							lockCandidateRemoval (int c, Cell* boxCells[]);
+		bool							checkForLockedCandidate2 (int candidate, CollectionType collection, int numLocations, int locations[]);
+		bool							inSameRCB (CollectionType collection, int numLocations, int locations[]);
+		bool							lockedCandidateReduction (int candidate, int numCells, Cell* cells[]);
+		//bool							checkForLockedCandidate (int c, int i, bool isRow);
+		//bool							checkForLock (int c, Cell* boxCells[]);
+		//bool							lockCandidateRemoval (int c, Cell* boxCells[]);
 		int								findMatchingCells (Cell* cellToMatch, Cell* matchingCells[]);
 		bool							checkForXWingReductions (int candidate, int numLocations, int locations[]);
 
@@ -177,16 +187,20 @@ class CellSet {
 		bool							checkForHiddenSubsets (int n);
 		bool							checkForHiddenSubsets (int n, int permutation[]);
 		bool							hiddenSubsetReduction (int n, int permutation[]);
+		bool							hiddenSubsetReduction2 (int n, Cell* candidateCells[], int values[]);
 		int								getLocationsForCandidate (int candidate, int locations[]);
 
-		bool							validate ();
+		bool							hasCandidateCell (Cell* candidateCell);
+		bool							hasAllCandidateCells (int n, Cell* candidateCells[]);
+
+		bool							validate (int level=0);
 
 		std::string						getName () { return m_name; }
 
 		std::string						toString (int level);
 
 	protected:
-		CollectionType					m_type;
+		CollectionType					m_collection;
 		std::string						m_name;
 
 		CellVector						m_cells;
@@ -228,14 +242,13 @@ class AllCellSets {
 											return m_cellSets[i];
 										}
 
-		bool							runAlgorithm (AlgorithmType algorithm);
-		virtual bool					checkForLockedCandidates () { return false; }
-		virtual bool					checkForXWings ();
-		bool							checkForXWings (int candidate);
+		bool							checkForLockedCandidates ();
 		bool							checkForNakedSubsets (int n);
 		bool							checkForHiddenSubsets (int n);
+		virtual bool					checkForXWings ();
+		bool							checkForXWings (int candidate);
 
-		bool							validate ();
+		bool							validate (int level=0);
 
 		void							print (int level);
 
@@ -293,7 +306,6 @@ class AllBoxes : public AllCellSets {
 											return index;
 										}
 
-		bool							checkForLockedCandidates ();
 		bool							checkForXWings () { return false; }
 };
 
@@ -376,6 +388,11 @@ class SudokuSolver {
 		void			solve ();
 		bool			tryToSolve ();
 		bool			runAlgorithm (AlgorithmType algorithm);
+		bool			checkForNakedSubsets (int n);
+		bool			checkForHiddenSubsets (int n);
+		bool			checkForLockedCandidates ();
+		bool			checkForXWings ();
+		bool			checkForYWings ();
 
 		void			reset ();
 		void			print (int level=0);
@@ -384,7 +401,9 @@ class SudokuSolver {
 							return m_allCells.isSolved();
 						}
 
-		bool			validate ();
+		bool			validate (int level=0);
+
+		void			listAlgorithms ();
 
 	protected:
 		AllCells		m_allCells;
