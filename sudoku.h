@@ -94,7 +94,7 @@ class Cell {
 
 		bool							haveExactPossibles (Cell* otherCell);
 		void							processNakedSingle ();
-		int								getNumPossibleValues ();
+		int								getPossibleValues (int possibles[]=NULL);
 		bool							haveSamePossibles (Cell* otherCell);
 		bool							haveAnyOverlappingPossibles (Cell* otherCell);
 		bool							tryToReduce (Cell* firstCell, Cell* secondCell);
@@ -102,6 +102,8 @@ class Cell {
 		bool							areAnyOfTheseValuesUntaken (int n, int values[]);
 		bool							hiddenSubsetReduction (int n, int values[]);
 		bool							hiddenSubsetReduction2 (int n, Cell* candidateCells[], int values[]);
+		bool							checkForYWings ();
+		bool							checkForYWings (Cell* secondCell);
 
 										// return true if this cell could have "i" for a value. Otherwise, false
 		bool							getPossible (int i) {
@@ -174,9 +176,6 @@ class CellSet {
 		bool							checkForLockedCandidate2 (int candidate, CollectionType collection, int numLocations, int locations[]);
 		bool							inSameRCB (CollectionType collection, int numLocations, int locations[]);
 		bool							lockedCandidateReduction (int candidate, int numCells, Cell* cells[]);
-		//bool							checkForLockedCandidate (int c, int i, bool isRow);
-		//bool							checkForLock (int c, Cell* boxCells[]);
-		//bool							lockCandidateRemoval (int c, Cell* boxCells[]);
 		int								findMatchingCells (Cell* cellToMatch, Cell* matchingCells[]);
 		bool							checkForXWingReductions (int candidate, int numLocations, int locations[]);
 
@@ -352,6 +351,8 @@ class AllCells {
 											return true;
 										}
 
+		bool							checkForYWings ();
+
 	protected:
 		int								getIndex (int row, int col) {
 											return (row * g_N) + col;
@@ -364,53 +365,53 @@ class AllCells {
 
 class SudokuSolver {
 	public:
-						SudokuSolver () : m_allCells(g_n), m_allRows(g_n), m_allCols(g_n), m_allBoxes(g_n) {
-							m_allCellSets[ROW_COLLECTION] = &m_allRows;
-							m_allCellSets[COL_COLLECTION] = &m_allCols;
-							m_allCellSets[BOX_COLLECTION] = &m_allBoxes;
+										SudokuSolver () : m_allCells(g_n), m_allRows(g_n), m_allCols(g_n), m_allBoxes(g_n) {
+											m_allCellSets[ROW_COLLECTION] = &m_allRows;
+											m_allCellSets[COL_COLLECTION] = &m_allCols;
+											m_allCellSets[BOX_COLLECTION] = &m_allBoxes;
 
-							// initialize the collections
-							for (int row=0; row<g_N; row++) {
-								for (int col=0; col<g_N; col++) {
-									Cell* cell = m_allCells.getCell(row, col);
+											// initialize the collections
+											for (int row=0; row<g_N; row++) {
+												for (int col=0; col<g_N; col++) {
+													Cell* cell = m_allCells.getCell(row, col);
 
-									for (int i=0; i<NUM_COLLECTIONS; i++) {
-										m_allCellSets[i]->setCell(row, col, cell);
-									}
-								}
-							}
-						}
+													for (int i=0; i<NUM_COLLECTIONS; i++) {
+														m_allCellSets[i]->setCell(row, col, cell);
+													}
+												}
+											}
+										}
 
-						~SudokuSolver () {
-						}
+										~SudokuSolver () {
+										}
 
-		void			init (const char* filename);
-		void			solve ();
-		bool			tryToSolve ();
-		bool			runAlgorithm (AlgorithmType algorithm);
-		bool			checkForNakedSubsets (int n);
-		bool			checkForHiddenSubsets (int n);
-		bool			checkForLockedCandidates ();
-		bool			checkForXWings ();
-		bool			checkForYWings ();
+		void							init (const char* filename);
+		void							solve ();
+		bool							tryToSolve ();
+		bool							runAlgorithm (AlgorithmType algorithm);
+		bool							checkForNakedSubsets (int n);
+		bool							checkForHiddenSubsets (int n);
+		bool							checkForLockedCandidates ();
+		bool							checkForXWings ();
+		bool							checkForYWings ();
 
-		void			reset ();
-		void			print (int level=0);
+		void							reset ();
+		void							print (int level=0);
 
-		bool			isSolved () {
-							return m_allCells.isSolved();
-						}
+		bool							isSolved () {
+											return m_allCells.isSolved();
+										}
 
-		bool			validate (int level=0);
+		bool							validate (int level=0);
 
-		void			listAlgorithms ();
+		void							listAlgorithms ();
 
 	protected:
-		AllCells		m_allCells;
+		AllCells						m_allCells;
 
-		AllRows			m_allRows;
-		AllCols			m_allCols;
-		AllBoxes		m_allBoxes;
+		AllRows							m_allRows;
+		AllCols							m_allCols;
+		AllBoxes						m_allBoxes;
 
-		AllCellSets*	m_allCellSets[NUM_COLLECTIONS];
+		AllCellSets*					m_allCellSets[NUM_COLLECTIONS];
 };
