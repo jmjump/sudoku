@@ -112,7 +112,7 @@ int Cell::getPossibleValues (int possibles[]) {
 
 	for (int i=0; i<g_N; i++) {
 		if (m_possibles[i]) {
-			TRACE(3, "%s(this=%s) can be %d\n",
+			TRACE(4, "%s(this=%s) can be %d\n",
 				__CLASSFUNCTION__, m_name.c_str(), i+1);
 
 			if (possibles) {
@@ -123,7 +123,7 @@ int Cell::getPossibleValues (int possibles[]) {
 		}
 	}
 
-	TRACE(3, "%s(this=%s) num possible values=%d\n",
+	TRACE(4, "%s(this=%s) num possible values=%d\n",
 		__CLASSFUNCTION__, m_name.c_str(), numPossibleValues);
 
 	return numPossibleValues;
@@ -176,37 +176,6 @@ bool Cell::haveAnyOverlappingPossibles (Cell* otherCell) {
 	}
 
 	return false;
-}
-
-bool Cell::tryToReduce (Cell* firstCell, Cell* secondCell) {
-	TRACE(3, "%s(this=%s, firstCell=%s, secondCell=%s)\n",
-		__CLASSFUNCTION__, m_name.c_str(), firstCell->getName().c_str(), secondCell->getName().c_str());
-
-	bool anyReductions = false;
-
-	for (int i=0; i<g_N; i++) {
-		if (m_possibles[i]) {
-			if (this == secondCell) {
-				// if "this" is the second cell, then remove any vacancies that don't exist in firstCell
-				if (firstCell->m_possibles[i]) {
-					continue;
-				}
-			} else {
-				// otherwise, remove any vacancies in common with firstCell
-				if (!firstCell->m_possibles[i]) {
-					continue;
-				}
-			}
-
-			TRACE(1, "%s(this=%s, firstCell=%s, secondCell=%s) cannot be a %d\n",
-				__CLASSFUNCTION__, m_name.c_str(), firstCell->getName().c_str(), secondCell->getName().c_str(), i+1);
-
-			m_possibles[i] = false;
-			anyReductions = true;
-		}
-	}
-
-	return anyReductions;
 }
 
 bool Cell::tryToReduce (int value) {
@@ -334,6 +303,178 @@ bool Cell::hiddenSubsetReduction2 (int n, Cell* candidateCells[], int values[]) 
 		CellSet* cellSet = m_cellSets[i];
 
 		anyChanges |= cellSet->hiddenSubsetReduction2(n, candidateCells, values);
+	}
+
+	return anyChanges;
+}
+
+// return true if otherCell is in the same row, col or box as this cell.
+// otherwise, false
+bool Cell::hasNeighbor (Cell* otherCell) {
+	TRACE(3, "%s(this=%s, otherCell=%s)\n",
+		__CLASSFUNCTION__, m_name.c_str(), otherCell->getName().c_str());
+	
+	for (int i=0; i<NUM_COLLECTIONS; i++) {
+		CellSet* cellSet = m_cellSets[i];
+
+		if (cellSet->hasCandidateCell(otherCell)) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+// Find all of the cells that are "neighbors" of both this cell and otherCell.
+// For each of them, eliminate "c" as a possibility
+bool Cell::checkForYWingReductions (int c, Cell* otherCell) {
+	TRACE(3, "%s(this=%s, c=%d, otherCell=%s)\n",
+		__CLASSFUNCTION__, m_name.c_str(), c+1, otherCell->getName().c_str());
+
+	bool anyChanges = false;
+
+	for (int i=0; i<NUM_COLLECTIONS; i++) {
+		CellSet* cellSet = m_cellSets[i];
+
+		TRACE(3, "%s(this=%s, c=%d, otherCell=%s) checking %s\n",
+			__CLASSFUNCTION__, m_name.c_str(), c+1, otherCell->getName().c_str(),
+			cellSet->getName().c_str());
+
+		for (int location=0; location<g_N; location++) {
+			Cell* yetAnotherCell = cellSet->getCell(location);
+
+			if ((yetAnotherCell == this) || (yetAnotherCell == otherCell)) {
+				continue;
+			}
+
+			if (!yetAnotherCell->hasNeighbor(otherCell)) {
+				continue;
+			}
+
+			if (yetAnotherCell->tryToReduce(c)) {
+				TRACE(1, "%s(this=%s, c=%d, otherCell=%s) %s cannot be a %d\n",
+					__CLASSFUNCTION__, m_name.c_str(), c+1, otherCell->getName().c_str(),
+					yetAnotherCell->getName().c_str(), c+1);
+
+				anyChanges = true;
+			}
+		}
+	}
+
+	return anyChanges;
+}
+
+bool Cell::checkForYWings (Cell* secondCell) {
+	TRACE(3, "%s(this=%s) secondCell=%s\n",
+		__CLASSFUNCTION__, m_name.c_str(), secondCell->getName().c_str());
+
+	Cell* firstCell = this;
+	int firstCellPossibles[g_N];
+	int numFirstCellPossibles = firstCell->getPossibleValues(firstCellPossibles);
+
+	int secondCellPossibles[g_N];
+	int numSecondCellPossibles = secondCell->getPossibleValues(secondCellPossibles);
+	if (numSecondCellPossibles != 2) {
+		return false;
+	}
+
+	// Need to overlap by 1
+	int a, b, c;
+	if ((firstCellPossibles[0] == secondCellPossibles[0]) && (firstCellPossibles[1] != secondCellPossibles[1])) {
+		a = firstCellPossibles[0];
+		b = firstCellPossibles[1];
+		c = secondCellPossibles[1];
+	} else if ((firstCellPossibles[0] != secondCellPossibles[0]) && (firstCellPossibles[1] == secondCellPossibles[1])) {
+		a = firstCellPossibles[1];
+		b = firstCellPossibles[0];
+		c = secondCellPossibles[0];
+	} else {
+		return false;
+	}
+
+	// "a" is shared between the two cells
+	// "b" is only in this cell
+	// "c" is only in otherCell
+
+	TRACE(3, "%s(this=%s) secondCell=%s also 2 possible values=%s (a=%d,b=%d,c=%d)\n",
+		__CLASSFUNCTION__, m_name.c_str(), secondCell->getName().c_str(),
+		intListToString(numSecondCellPossibles, secondCellPossibles), a+1, b+1, c+1);
+
+	bool anyChanges = false;
+
+	for (int collection=0; collection<NUM_COLLECTIONS; collection++) {
+		CellSet* cellSet = m_cellSets[collection];
+
+		for (int location=0; location<g_N; location++) {
+			Cell* thirdCell = cellSet->getCell(location);
+			if ((thirdCell == firstCell) || (thirdCell == secondCell)) {
+				continue;
+			}
+
+			int thirdCellPossibles[g_N];
+			int numThirdCellPossibles = thirdCell->getPossibleValues(thirdCellPossibles);
+			if (numThirdCellPossibles != 2) {
+				continue;
+			}
+
+			TRACE(3, "%s(this=%s) thirdCell=%s also 2 possible values=%s\n",
+				__CLASSFUNCTION__, m_name.c_str(), thirdCell->getName().c_str(),
+				intListToString(numThirdCellPossibles, thirdCellPossibles));
+
+			// Make sure the values overlap correctly!
+			// thirdCell *MUST* be "b" and "c"
+			if ((thirdCellPossibles[0] == b) && (thirdCellPossibles[1] == c)) {
+				; // thirdCell = [b,c]
+			} else if ((thirdCellPossibles[1] == b) && (thirdCellPossibles[0] == c)) {
+				; // thirdCell = [c, b]
+			} else {
+				continue;
+			}
+
+TRACE(2, "%s(this=%s) firstCell=%s has 2 possible values=%s\n",
+__CLASSFUNCTION__, m_name.c_str(), firstCell->getName().c_str(),
+intListToString(numFirstCellPossibles, firstCellPossibles));
+
+TRACE(2, "%s(this=%s) secondCell=%s has 2 possible values=%s (a=%d,b=%d,c=%d)\n",
+__CLASSFUNCTION__, m_name.c_str(), secondCell->getName().c_str(),
+intListToString(numSecondCellPossibles, secondCellPossibles), a+1, b+1, c+1);
+
+TRACE(2, "%s(this=%s) thirdCell=%s also 2 possible values=%s\n",
+__CLASSFUNCTION__, m_name.c_str(), thirdCell->getName().c_str(),
+intListToString(numThirdCellPossibles, thirdCellPossibles));
+
+			anyChanges = secondCell->checkForYWingReductions(c, thirdCell);
+		}
+	}
+
+	return anyChanges;
+}
+
+bool Cell::checkForYWings () {
+	TRACE(3, "%s(this=%s)\n", __CLASSFUNCTION__, m_name.c_str());
+
+	int possibles[g_N];
+	int numPossible = getPossibleValues(possibles);
+	if (numPossible != 2) {
+		return false;
+	}
+
+	TRACE(3, "%s(this=%s) has 2 possible values=%s\n",
+		__CLASSFUNCTION__, m_name.c_str(), intListToString(numPossible, possibles));
+
+	bool anyChanges = false;
+
+	for (int collection=0; collection<NUM_COLLECTIONS; collection++) {
+		CellSet* cellSet = m_cellSets[collection];
+
+		for (int location=0; location<g_N; location++) {
+			Cell* secondCell = cellSet->getCell(location);
+			if (secondCell == this) {
+				continue;
+			}
+
+			anyChanges |= checkForYWings(secondCell);
+		}
 	}
 
 	return anyChanges;
@@ -930,128 +1071,12 @@ bool AllCellSets::validate (int level) {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-bool Cell::checkForYWings (Cell* secondCell) {
-	TRACE(3, "%s(this=%s) secondCell=%s\n",
-		__CLASSFUNCTION__, m_name.c_str(), secondCell->getName().c_str());
-
-	Cell* firstCell = this;
-	int firstCellPossibles[g_N];
-	int numFirstCellPossibles = firstCell->getPossibleValues(firstCellPossibles);
-
-	int secondCellPossibles[g_N];
-	int numSecondCellPossibles = secondCell->getPossibleValues(secondCellPossibles);
-	if (numSecondCellPossibles != 2) {
-		return false;
-	}
-
-	// Need to overlap by 1
-	int a, b, c;
-	if ((firstCellPossibles[0] == secondCellPossibles[0]) && (firstCellPossibles[1] != secondCellPossibles[1])) {
-		a = firstCellPossibles[0];
-		b = firstCellPossibles[1];
-		c = secondCellPossibles[1];
-	} else if ((firstCellPossibles[0] != secondCellPossibles[0]) && (firstCellPossibles[1] == secondCellPossibles[1])) {
-		a = firstCellPossibles[1];
-		b = firstCellPossibles[0];
-		c = secondCellPossibles[0];
-	} else {
-		return false;
-	}
-
-	// "a" is shared between the two cells
-	// "b" is only in this cell
-	// "c" is only in otherCell
-
-	TRACE(3, "%s(this=%s) secondCell=%s also 2 possible values=%s (a=%d,b=%d,c=%d)\n",
-		__CLASSFUNCTION__, m_name.c_str(), secondCell->getName().c_str(),
-		intListToString(numSecondCellPossibles, secondCellPossibles), a+1, b+1, c+1);
-
-	bool anyChanges = false;
-
-	for (int collection=0; collection<NUM_COLLECTIONS; collection++) {
-		CellSet* cellSet = m_cellSets[collection];
-
-		for (int location=0; location<g_N; location++) {
-			Cell* thirdCell = cellSet->getCell(location);
-			if ((thirdCell == firstCell) || (thirdCell == secondCell)) {
-				continue;
-			}
-
-			int thirdCellPossibles[g_N];
-			int numThirdCellPossibles = thirdCell->getPossibleValues(thirdCellPossibles);
-			if (numThirdCellPossibles != 2) {
-				continue;
-			}
-
-			TRACE(3, "%s(this=%s) thirdCell=%s also 2 possible values=%s\n",
-				__CLASSFUNCTION__, m_name.c_str(), thirdCell->getName().c_str(),
-				intListToString(numThirdCellPossibles, thirdCellPossibles));
-
-			// Make sure the values overlap correctly!
-			// thirdCell *MUST* be "b" and "c"
-			if ((thirdCellPossibles[0] == b) && (thirdCellPossibles[1] == c)) {
-			} else if ((thirdCellPossibles[1] == b) && (thirdCellPossibles[0] == c)) {
-			} else {
-				continue;
-			}
-
-TRACE(2, "%s(this=%s) firstCell=%s has 2 possible values=%s\n",
-__CLASSFUNCTION__, m_name.c_str(), firstCell->getName().c_str(),
-intListToString(numFirstCellPossibles, firstCellPossibles));
-
-TRACE(2, "%s(this=%s) secondCell=%s has 2 possible values=%s (a=%d,b=%d,c=%d)\n",
-__CLASSFUNCTION__, m_name.c_str(), secondCell->getName().c_str(),
-intListToString(numSecondCellPossibles, secondCellPossibles), a+1, b+1, c+1);
-
-TRACE(2, "%s(this=%s) thirdCell=%s also 2 possible values=%s\n",
-__CLASSFUNCTION__, m_name.c_str(), thirdCell->getName().c_str(),
-intListToString(numThirdCellPossibles, thirdCellPossibles));
-
-TRACE(2, "   maybe!!!!!\n");
-
-// intersection?
-		}
-	}
-
-	return anyChanges;
-}
-
-bool Cell::checkForYWings () {
-	TRACE(3, "%s(this=%s)\n", __CLASSFUNCTION__, m_name.c_str());
-
-	int possibles[g_N];
-	int numPossible = getPossibleValues(possibles);
-	if (numPossible != 2) {
-		return false;
-	}
-
-	TRACE(3, "%s(this=%s) has 2 possible values=%s\n",
-		__CLASSFUNCTION__, m_name.c_str(), intListToString(numPossible, possibles));
-
-	bool anyChanges = false;
-
-	for (int collection=0; collection<NUM_COLLECTIONS; collection++) {
-		CellSet* cellSet = m_cellSets[collection];
-
-		for (int location=0; location<g_N; location++) {
-			Cell* secondCell = cellSet->getCell(location);
-			if (secondCell == this) {
-				continue;
-			}
-
-			anyChanges |= checkForYWings(secondCell);
-		}
-	}
-
-	return anyChanges;
-}
-
 bool AllCells::checkForYWings () {
 	TRACE(3, "%s()\n", __CLASSFUNCTION__);
 
 	bool anyChanges = false;
 
-	for (int i=0; i<ArraySize(m_cells); i++) {
+	for (int i=0; i<ArraySize(m_cells)-2; i++) {
 		anyChanges |= m_cells[i]->checkForYWings();
 	}
 

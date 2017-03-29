@@ -92,25 +92,26 @@ class Cell {
 											return m_value;
 										}
 
+		bool							hasNeighbor (Cell* otherCell);
 		bool							haveExactPossibles (Cell* otherCell);
 		void							processNakedSingle ();
 		int								getPossibleValues (int possibles[]=NULL);
 		bool							haveSamePossibles (Cell* otherCell);
 		bool							haveAnyOverlappingPossibles (Cell* otherCell);
-		bool							tryToReduce (Cell* firstCell, Cell* secondCell);
 		bool							checkForNakedReductions (Cell* nakedCell);
 		bool							areAnyOfTheseValuesUntaken (int n, int values[]);
 		bool							hiddenSubsetReduction (int n, int values[]);
 		bool							hiddenSubsetReduction2 (int n, Cell* candidateCells[], int values[]);
 		bool							checkForYWings ();
 		bool							checkForYWings (Cell* secondCell);
+		bool							checkForYWingReductions (int c, Cell* otherCell);
 
 										// return true if this cell could have "i" for a value. Otherwise, false
 		bool							getPossible (int i) {
 											return (!m_known && m_possibles[i]);
 										}
 
-		bool							tryToReduce (int i);
+		bool							tryToReduce (int c);
 
 										// Get the row/col/box
 		int								getRCB (int rcb) {
