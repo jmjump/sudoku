@@ -10,16 +10,20 @@
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#define g_n								3 // Boxes are 3x3
-#define g_N								(g_n * g_n)	// 9 cells in a row, col or box
+#define g_n									3 // Boxes are 3x3
+#define g_N									(g_n * g_n)	// 9 cells in a row, col or box
 
 class Cell;
-typedef std::vector<Cell*>				CellVector;
-typedef CellVector::iterator			CellVectorIterator;
+typedef std::vector<Cell*>					CellVector;
+typedef CellVector::iterator				CellVectorIterator;
 
 class CellSet;
-typedef std::vector<CellSet*>			CellSetVector;
-typedef CellSetVector::iterator			CellSetVectorIterator;
+typedef std::vector<CellSet*>				CellSetVector;
+typedef CellSetVector::iterator				CellSetVectorIterator;
+
+class CellSetCollection;
+typedef std::vector<CellSetCollection*>		CellSetCollectionVector;
+typedef CellSetCollectionVector::iterator	CellSetCollectionVectorIterator;
 
 typedef enum {
 	ALG_CHECK_FOR_NAKED_SINGLES,
@@ -27,13 +31,16 @@ typedef enum {
 	ALG_CHECK_FOR_NAKED_PAIRS,
 	ALG_CHECK_FOR_HIDDEN_PAIRS,
 	ALG_CHECK_FOR_LOCKED_CANDIDATES,
+	ALG_CHECK_FOR_NAKED_TRIPLES,
+	ALG_CHECK_FOR_HIDDEN_TRIPLES,
 	ALG_CHECK_FOR_XWINGS,
 	ALG_CHECK_FOR_YWINGS,
+	ALG_CHECK_FOR_SINGLES_CHAINS,
 
 	NUM_ALGORITHMS
 } AlgorithmType;
 
-extern const char* toString (AlgorithmType);
+extern const char* alogorithmToString (AlgorithmType);
 
 typedef enum {
 	ROW_COLLECTION,
@@ -42,6 +49,16 @@ typedef enum {
 
 	NUM_COLLECTIONS
 } CollectionType;
+
+extern const char* collectionToString (CollectionType);
+
+typedef enum {
+	CHAIN_STATUS_EMPTY,
+	CHAIN_STATUS_COLOR_RED,
+	CHAIN_STATUS_COLOR_BLACK
+} ChainStatusType;
+
+extern const char* chainStatusToString (ChainStatusType);
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -53,10 +70,6 @@ class Cell {
 											m_box = (row / g_n) + (col / g_n);
 
 											m_name = makeString("R%dC%d", m_row+1, m_col+1);
-
-											for (int i=0; i<NUM_COLLECTIONS; i++) {
-												m_cellSets[i] = NULL;
-											}
 
 											reset();
 										}
@@ -128,6 +141,11 @@ class Cell {
 
 		std::string						getName () { return m_name; }
 
+		// For chain coloring
+		void							resetChain ();
+		bool							buildChains (int candidate, ChainStatusType);
+		ChainStatusType					getChainStatus () { return m_chainStatus; }
+
 	protected:
 		std::string						m_name;
 		int								m_row;
@@ -144,6 +162,9 @@ class Cell {
 		// 3) a box
 		// m_cellSets provides a back pointer to those structures
 		CellSet*						m_cellSets[NUM_COLLECTIONS];
+
+		// For chain coloring
+		ChainStatusType					m_chainStatus;
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -199,30 +220,34 @@ class CellSet {
 
 		std::string						toString (int level);
 
+		// For chain coloring
+		void							buildChains (int candidate, ChainStatusType);
+		bool							checkForSinglesChainsReductions (int candidate);
+
 	protected:
 		CollectionType					m_collection;
 		std::string						m_name;
 
-		CellVector						m_cells;
+		Cell*							m_cells[g_N];
 		bool							m_isTaken[g_N];
 };
 
 ////////////////////////////////////////////////////////////////////////////////
 
-class AllCellSets {
+class CellSetCollection {
 	public:
-										AllCellSets (CollectionType type, std::string name) {
+										CellSetCollection (CollectionType type, std::string name) {
 											m_type = type;
 											m_name = makeString("All%ss", name.c_str());
 
-											m_cellSets.resize(g_N);
+											//m_cellSets.resize(g_N);
 
 											for (int i=0; i<g_N; i++) {
 												m_cellSets[i] = new CellSet(m_type, makeString("%s%d", name.c_str(), i+1));
 											}
 										}
 
-										virtual ~AllCellSets () {
+										virtual ~CellSetCollection () {
 											for (int i=0; i<g_N; i++) {
 												delete m_cellSets[i];
 											}
@@ -248,6 +273,9 @@ class AllCellSets {
 		virtual bool					checkForXWings ();
 		bool							checkForXWings (int candidate);
 
+		// For chain coloring
+		bool							checkForSinglesChainsReductions (int candidate);
+
 		bool							validate (int level=0);
 
 		void							print (int level);
@@ -259,14 +287,14 @@ class AllCellSets {
 		CollectionType					m_type;
 
 		std::string						m_name;
-		CellSetVector					m_cellSets;
+		CellSet*						m_cellSets[g_N];
 };
 
 ////////////////////////////////////////////////////////////////////////////////
 
-class AllRows : public AllCellSets {
+class AllRows : public CellSetCollection {
 	public:
-										AllRows (int n) : AllCellSets(ROW_COLLECTION, "Row") { }
+										AllRows () : CellSetCollection(ROW_COLLECTION, "Row") { }
 
 		int								getIndex1 (int row, int col) { return row; }
 		int								getIndex2 (int row, int col) { return col; }
@@ -274,9 +302,9 @@ class AllRows : public AllCellSets {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-class AllCols : public AllCellSets {
+class AllCols : public CellSetCollection {
 	public:
-										AllCols (int n) : AllCellSets(COL_COLLECTION, "Col") { }
+										AllCols () : CellSetCollection(COL_COLLECTION, "Col") { }
 
 		int								getIndex1 (int row, int col) { return col; }
 		int								getIndex2 (int row, int col) { return row; }
@@ -284,9 +312,9 @@ class AllCols : public AllCellSets {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-class AllBoxes : public AllCellSets {
+class AllBoxes : public CellSetCollection {
 	public:
-										AllBoxes (int n) : AllCellSets(BOX_COLLECTION, "Box") { }
+										AllBoxes () : CellSetCollection(BOX_COLLECTION, "Box") { }
 
 		int								getIndex1 (int row, int col) {
 											int rowBase = row / g_n;
@@ -313,7 +341,7 @@ class AllBoxes : public AllCellSets {
 
 class AllCells {
 	public:
-										AllCells (int n) {
+										AllCells () {
 											for (int row=0; row<g_N; row++) {
 												for (int col=0; col<g_N; col++) {
 													Cell* cell = new Cell(row, col);
@@ -354,6 +382,10 @@ class AllCells {
 
 		bool							checkForYWings ();
 
+		// For chain coloring
+		void							resetChains ();
+		bool							buildChains (int candidate, ChainStatusType);
+
 	protected:
 		int								getIndex (int row, int col) {
 											return (row * g_N) + col;
@@ -366,10 +398,10 @@ class AllCells {
 
 class SudokuSolver {
 	public:
-										SudokuSolver () : m_allCells(g_n), m_allRows(g_n), m_allCols(g_n), m_allBoxes(g_n) {
-											m_allCellSets[ROW_COLLECTION] = &m_allRows;
-											m_allCellSets[COL_COLLECTION] = &m_allCols;
-											m_allCellSets[BOX_COLLECTION] = &m_allBoxes;
+										SudokuSolver () {
+											m_cellSetCollections[ROW_COLLECTION] = &m_allRows;
+											m_cellSetCollections[COL_COLLECTION] = &m_allCols;
+											m_cellSetCollections[BOX_COLLECTION] = &m_allBoxes;
 
 											// initialize the collections
 											for (int row=0; row<g_N; row++) {
@@ -377,7 +409,7 @@ class SudokuSolver {
 													Cell* cell = m_allCells.getCell(row, col);
 
 													for (int i=0; i<NUM_COLLECTIONS; i++) {
-														m_allCellSets[i]->setCell(row, col, cell);
+														m_cellSetCollections[i]->setCell(row, col, cell);
 													}
 												}
 											}
@@ -395,6 +427,8 @@ class SudokuSolver {
 		bool							checkForLockedCandidates ();
 		bool							checkForXWings ();
 		bool							checkForYWings ();
+		bool							checkForSinglesChains ();
+		bool							checkForSinglesChains (int candidate);
 
 		void							reset ();
 		void							print (int level=0);
@@ -414,5 +448,5 @@ class SudokuSolver {
 		AllCols							m_allCols;
 		AllBoxes						m_allBoxes;
 
-		AllCellSets*					m_allCellSets[NUM_COLLECTIONS];
+		CellSetCollection*				m_cellSetCollections[NUM_COLLECTIONS];
 };
