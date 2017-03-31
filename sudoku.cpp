@@ -72,7 +72,7 @@ const char* collectionToString (CollectionType collection) {
 
 const char* chainStatusToString (ChainStatusType chainStatus) {
 	NameValuePair chainStatusNames[] = {
-		CHAIN_STATUS_EMPTY, "empty",
+		CHAIN_STATUS_UNCOLORED, "uncolored",
 		CHAIN_STATUS_COLOR_RED, "red",
 		CHAIN_STATUS_COLOR_BLACK, "black",
 	};
@@ -220,11 +220,11 @@ bool Cell::haveAnyOverlappingPossibles (Cell* otherCell) {
 }
 
 bool Cell::tryToReduce (int value) {
-	TRACE(3, "%s(this=%s, value=%d)\n",
+	TRACE(4, "%s(this=%s, value=%d)\n",
 		__CLASSFUNCTION__, m_name.c_str(), value+1);
 
 	if (getPossible(value)) {
-		TRACE(2, "%s(this=%s, candidate=%d) %s cannot be a %d\n",
+		TRACE(3, "%s(this=%s, candidate=%d) %s cannot be a %d\n",
 			__CLASSFUNCTION__, m_name.c_str(), value+1, m_name.c_str(), value+1);
 
 		m_possibles[value] = false;
@@ -1248,7 +1248,7 @@ bool SudokuSolver::checkForYWings () {
 }
 
 void Cell::resetChain () {
-	m_chainStatus = CHAIN_STATUS_EMPTY;
+	m_chainStatus = CHAIN_STATUS_UNCOLORED;
 }
 
 void AllCells::resetChains () {
@@ -1257,12 +1257,46 @@ void AllCells::resetChains () {
 	}
 }
 
-bool Cell::buildChains (int candidate, ChainStatusType chainStatus) {
-	TRACE(3, "%s(this=%s, candidate=%d, chainStatus=%s)\n",
-		__CLASSFUNCTION__, m_name.c_str(), candidate+1, chainStatusToString(chainStatus));
+int CellSet::getNumPossible (int candidate) {
+	TRACE(3, "%s(this=%s, candidate=%d)\n",
+		__CLASSFUNCTION__, m_name.c_str(), candidate+1);
+
+	int numPossible = 0;
+
+	ForEachInCellArray(m_cells, cell) {
+		if (cell->getPossible(candidate)) {
+			numPossible++;
+		}
+	}
+
+	TRACE(4, "%s(this=%s, candidate=%d) numPossible=%d\n",
+		__CLASSFUNCTION__, m_name.c_str(), candidate+1, numPossible);
+
+	return numPossible;
+}
+
+bool Cell::isConjugatePair (int candidate) {
+	TRACE(3, "%s(this=%s, candidate=%d)\n",
+		__CLASSFUNCTION__, m_name.c_str(), candidate+1);
+
+	ForEachInCellSetArray(m_cellSets, cellSet) {
+		int numPossible = cellSet->getNumPossible(candidate);
+		if (numPossible == 2) {
+TRACE(2, "%s(this=%s, candidate=%d) is conjugate pair in %s\n", __CLASSFUNCTION__, m_name.c_str(), candidate+1, cellSet->getName().c_str());
+			return true;
+		}
+	}
+
+	return false;
+}
+
+bool Cell::buildChains (int candidate, ChainStatusType chainStatus, Cell* linkingCell) {
+	TRACE(4, "%s(this=%s, candidate=%d, chainStatus=%s, linkingCell=%s)\n",
+		__CLASSFUNCTION__, m_name.c_str(), candidate+1, chainStatusToString(chainStatus),
+		linkingCell ? linkingCell->getName().c_str() : "NULL");
 
 	// If this cell has already been colored, bail
-	if (m_chainStatus != CHAIN_STATUS_EMPTY) {
+	if (m_chainStatus != CHAIN_STATUS_UNCOLORED) {
 		return false;
 	}
 
@@ -1271,76 +1305,109 @@ bool Cell::buildChains (int candidate, ChainStatusType chainStatus) {
 		return false;
 	}
 
+	// Is this cell part of a conjugate pair?
+	if (!isConjugatePair(candidate)) {
+		return false;
+	}
+
 	// Set this cell's status
 	m_chainStatus = chainStatus;
 
-	// If there are only 2 possible values, continue the chain
-	if (getPossibleValues() == 2) {
-		// red->black, black->red
-		ChainStatusType nextStatus = (chainStatus == CHAIN_STATUS_COLOR_RED) ?
-			CHAIN_STATUS_COLOR_BLACK :
-			CHAIN_STATUS_COLOR_RED;
+	TRACE(3, "%s(this=%s, candidate=%d, chainStatus=%s, linkingCell=%s) %s=%s\n",
+		__CLASSFUNCTION__, m_name.c_str(), candidate+1, chainStatusToString(chainStatus),
+		linkingCell ? linkingCell->getName().c_str() : "NULL",
+		m_name.c_str(), chainStatusToString(chainStatus));
 
-		ForEachInCellSetArray(m_cellSets, cellSet) {
-			cellSet->buildChains(candidate, nextStatus);
-		}
+	ChainStatusType nextStatus = (chainStatus == CHAIN_STATUS_COLOR_RED) ?
+		CHAIN_STATUS_COLOR_BLACK :
+		CHAIN_STATUS_COLOR_RED;
+
+	ForEachInCellSetArray(m_cellSets, cellSet) {
+		cellSet->buildChains(candidate, nextStatus, this);
 	}
 
 	return true;
 }
 
-void CellSet::buildChains (int candidate, ChainStatusType chainStatus) {
-	TRACE(3, "%s(this=%s, candidate=%d, chainStatus=%s)\n",
-		__CLASSFUNCTION__, m_name.c_str(), candidate+1, chainStatusToString(chainStatus));
+void CellSet::buildChains (int candidate, ChainStatusType chainStatus, Cell* linkingCell) {
+	TRACE(4, "%s(this=%s, candidate=%d, chainStatus=%s, linkingCell=%s)\n",
+		__CLASSFUNCTION__, m_name.c_str(), candidate+1, chainStatusToString(chainStatus), linkingCell->getName().c_str());
+
+	// Are there only 2 possible cells for this candidate?
+	// If so, then there is a chain!
+	if (getNumPossible(candidate) != 2) {
+		return;
+	}
+
+	TRACE(3, "%s(this=%s, candidate=%d, chainStatus=%s, linkingCell=%s)\n",
+		__CLASSFUNCTION__, m_name.c_str(), candidate+1, chainStatusToString(chainStatus), linkingCell->getName().c_str());
 
 	ForEachInCellArray(m_cells, cell) {
-		cell->buildChains(candidate, chainStatus);
+		cell->buildChains(candidate, chainStatus, linkingCell);
 	}
 }
 
-bool CellSet::checkForSinglesChainsReductions (int candidate) {
-	TRACE(3, "%s(this=%s, candidate=%d)\n", __CLASSFUNCTION__, m_name.c_str(), candidate+1);
+
+// return true if any of the cells in this CellSet have the specified chainStatus
+bool CellSet::checkChainStatus (ChainStatusType chainStatus) {
+	ForEachInCellArray(m_cells, cell) {
+		if (cell->getChainStatus() == chainStatus) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+// return true if this (uncolored) cell can see a cell of the specified chainStatus
+bool Cell::canSee (ChainStatusType chainStatus) {
+	ForEachInCellSetArray(m_cellSets, cellSet) {
+		if (cellSet->checkChainStatus(chainStatus)) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+void SudokuSolver::printColors () {
+	for (int row=0; row<g_N; row++) {
+		for (int col=0; col<g_N; col++) {
+			Cell* cell = m_allCells.getCell(row, col);
+
+			if (cell->getChainStatus() == CHAIN_STATUS_COLOR_RED) {
+				printf("r");
+			} else if (cell->getChainStatus() == CHAIN_STATUS_COLOR_BLACK) {
+				printf("b");
+			} else {
+				printf("-");
+			}
+		}
+		printf("\n");
+	}
+	printf("\n");
+}
+
+// Any cells with a matching chainStatus can have "candidate" removed
+bool SudokuSolver::singlesChainsReduction (int candidate, ChainStatusType chainStatus) {
+	TRACE(2, "%s(candidate=%d, chainStatus=%s)\n",
+		__CLASSFUNCTION__, candidate+1, chainStatusToString(chainStatus));
 
 	bool anyChanges = false;
 
-	// Check each of the cells in this set. If there are two of the same color, then "candidate" can't be possible
-	int numRed = 0;
-	int numBlack = 0;
-	ForEachInCellArray(m_cells, cell) {
-		if (cell->getChainStatus() == CHAIN_STATUS_COLOR_RED) {
-			numRed++;
-		} else if (cell->getChainStatus() == CHAIN_STATUS_COLOR_BLACK) {
-			numBlack++;
-		}
-	}
+	for (int row=0; row<g_N; row++) {
+		for (int col=0; col<g_N; col++) {
+			Cell* cell = m_allCells.getCell(row, col);
 
-TRACE(3, "%s(this=%s, candidate=%d) numRed=%d, numBlack=%d\n", __CLASSFUNCTION__, m_name.c_str(), candidate+1, numRed, numBlack);
-
-	if ((numRed == 2) || (numBlack == 2)) {
-		ForEachInCellArray(m_cells, cell) {
-			if (cell->getChainStatus() != CHAIN_STATUS_EMPTY) { // TBD: double check (e.g., can there be 2 red and 1 black?)
-				if (cell->tryToReduce(candidate)) {
-					TRACE(1, "%s(this=%s, candidate=%d) R%dB%d: %s cannot be a %d\n",
-						__CLASSFUNCTION__, m_name.c_str(), candidate+1,
-						numRed, numBlack, cell->getName().c_str(), candidate+1);
-
-					anyChanges = true;
-				}
+			if (cell->getChainStatus() != chainStatus) {
+				continue;
 			}
-		}
-	}
 
-	// If there is 1 red and 1 black, then there can't be any other cells in this CellSet that can have candidate as a possible value
-	else if ((numRed == 1) && (numBlack == 1)) {
-		ForEachInCellArray(m_cells, cell) {
-			if (cell->getChainStatus() == CHAIN_STATUS_EMPTY) {
-				if (cell->tryToReduce(candidate)) {
-					TRACE(1, "%s(this=%s, candidate=%d) R%dB%d: %s cannot be a %d\n",
-						__CLASSFUNCTION__, m_name.c_str(), candidate+1,
-						numRed, numBlack, cell->getName().c_str(), candidate+1);
+			if (cell->tryToReduce(candidate)) {
+				TRACE(1, "%s(candidate=%d, chainStatus=%s) %s cannot be a %d\n",
+					__CLASSFUNCTION__, candidate+1, chainStatusToString(chainStatus), cell->getName().c_str(), candidate+1);
 
-					anyChanges = true;
-				}
+				anyChanges = true;
 			}
 		}
 	}
@@ -1348,13 +1415,74 @@ TRACE(3, "%s(this=%s, candidate=%d) numRed=%d, numBlack=%d\n", __CLASSFUNCTION__
 	return anyChanges;
 }
 
-bool CellSetCollection::checkForSinglesChainsReductions (int candidate) {
+// How many cells in this CellSet have the specified chainStatus?
+int CellSet::getChainStatusCount (ChainStatusType chainStatus) {
+	int count = 0;
+
+	ForEachInCellArray(m_cells, cell) {
+		if (cell->getChainStatus() == chainStatus) {
+			count++;
+		}
+	}
+
+	return count;
+}
+
+// return true if two cells in this CellSet have the specified chainStatus
+bool CellSetCollection::checkForTwoOfTheSameColor (ChainStatusType chainStatus) {
+	TRACE(3, "%s(this=%s, chainStatus=%s)\n", __CLASSFUNCTION__, m_name.c_str(), chainStatusToString(chainStatus));
+
+	ForEachInCellSetArray(m_cellSets, cellSet) {
+		int chainStatusCount = cellSet->getChainStatusCount(chainStatus);
+
+		TRACE(3, "%s(this=%s, chainStatus=%s) %s count=%d\n",
+			__CLASSFUNCTION__, m_name.c_str(), chainStatusToString(chainStatus), cellSet->getName().c_str(), chainStatusCount);
+
+		if (chainStatusCount == 2) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+bool SudokuSolver::checkForSinglesChainsReductions_SameColor (int candidate, ChainStatusType chainStatus) {
+	TRACE(2, "%s(candidate=%d, chainStatus=%s)\n", __CLASSFUNCTION__, candidate+1, chainStatusToString(chainStatus));
+
+	ForEachInCellSetCollectionArray(m_cellSetCollections, cellSetCollection) {
+		if (cellSetCollection->checkForTwoOfTheSameColor(chainStatus)) {
+			return singlesChainsReduction(candidate, chainStatus);
+		}
+	}
+
+	return false;
+}
+
+// If any uncolored cells can see cells of different colors, then the specified
+// candidate is no longer possible
+bool SudokuSolver::checkForSinglesChainsReductions_DifferentColors (int candidate) {
 	TRACE(3, "%s(candidate=%d)\n", __CLASSFUNCTION__, candidate+1);
 
 	bool anyChanges = false;
 
-	ForEachInCellSetArray(m_cellSets, cellSet) {
-		anyChanges |= cellSet->checkForSinglesChainsReductions(candidate);
+	for (int row=0; row<g_N; row++) {
+		for (int col=0; col<g_N; col++) {
+			Cell* cell = m_allCells.getCell(row, col);
+
+			if (cell->getChainStatus() != CHAIN_STATUS_UNCOLORED) {
+				continue;
+			}
+
+			// If this uncolored cell can see two cells with different colors, then it can't be "candidate"
+			if (cell->canSee(CHAIN_STATUS_COLOR_RED) && cell->canSee(CHAIN_STATUS_COLOR_BLACK)) {
+				if (cell->tryToReduce(candidate)) {
+					TRACE(1, "%s(candidate=%d) %s cannot be a %d\n",
+						__CLASSFUNCTION__, candidate+1, cell->getName().c_str(), candidate+1);
+
+					anyChanges = true;
+				}
+			}
+		}
 	}
 
 	return anyChanges;
@@ -1371,9 +1499,21 @@ bool SudokuSolver::checkForSinglesChains (int candidate) {
 		for (int col=0; col<g_N; col++) {
 			Cell* cell = m_allCells.getCell(row, col);
 
-			if (cell->buildChains(candidate, CHAIN_STATUS_COLOR_RED)) {
-				ForEachInCellSetCollectionArray(m_cellSetCollections, cellSetCollection) {
-					anyChanges |= cellSetCollection->checkForSinglesChainsReductions(candidate);
+			if (cell->buildChains(candidate, CHAIN_STATUS_COLOR_RED, NULL)) {
+				bool status = false;
+
+				// Do any of the CellSet's have two of the same color?
+				status |= checkForSinglesChainsReductions_SameColor(candidate, CHAIN_STATUS_COLOR_RED);
+				status |= checkForSinglesChainsReductions_SameColor(candidate, CHAIN_STATUS_COLOR_BLACK);
+
+				// If not, check for any cells that see two cells of different colors
+				if (!status) {
+					status = checkForSinglesChainsReductions_DifferentColors(candidate);
+				}
+
+				if (status) {
+					printColors();
+					anyChanges = true;
 				}
 
 				m_allCells.resetChains();

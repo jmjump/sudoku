@@ -53,7 +53,7 @@ typedef enum {
 extern const char* collectionToString (CollectionType);
 
 typedef enum {
-	CHAIN_STATUS_EMPTY,
+	CHAIN_STATUS_UNCOLORED,
 	CHAIN_STATUS_COLOR_RED,
 	CHAIN_STATUS_COLOR_BLACK
 } ChainStatusType;
@@ -143,8 +143,10 @@ class Cell {
 
 		// For chain coloring
 		void							resetChain ();
-		bool							buildChains (int candidate, ChainStatusType);
+		bool							buildChains (int candidate, ChainStatusType, Cell* linkingCell);
 		ChainStatusType					getChainStatus () { return m_chainStatus; }
+		bool							isConjugatePair (int candidate);
+		bool							canSee (ChainStatusType);
 
 	protected:
 		std::string						m_name;
@@ -221,8 +223,11 @@ class CellSet {
 		std::string						toString (int level);
 
 		// For chain coloring
-		void							buildChains (int candidate, ChainStatusType);
+		void							buildChains (int candidate, ChainStatusType, Cell* linkingCell);
 		bool							checkForSinglesChainsReductions (int candidate);
+		int								getNumPossible (int candidate);
+		bool							checkChainStatus (ChainStatusType);
+		int								getChainStatusCount (ChainStatusType);
 
 	protected:
 		CollectionType					m_collection;
@@ -239,8 +244,6 @@ class CellSetCollection {
 										CellSetCollection (CollectionType type, std::string name) {
 											m_type = type;
 											m_name = makeString("All%ss", name.c_str());
-
-											//m_cellSets.resize(g_N);
 
 											for (int i=0; i<g_N; i++) {
 												m_cellSets[i] = new CellSet(m_type, makeString("%s%d", name.c_str(), i+1));
@@ -275,6 +278,7 @@ class CellSetCollection {
 
 		// For chain coloring
 		bool							checkForSinglesChainsReductions (int candidate);
+		bool							checkForTwoOfTheSameColor (ChainStatusType);
 
 		bool							validate (int level=0);
 
@@ -427,8 +431,14 @@ class SudokuSolver {
 		bool							checkForLockedCandidates ();
 		bool							checkForXWings ();
 		bool							checkForYWings ();
+
+		// For singles chains
 		bool							checkForSinglesChains ();
 		bool							checkForSinglesChains (int candidate);
+		bool							singlesChainsReduction (int candidate, ChainStatusType);
+		bool							checkForSinglesChainsReductions_SameColor (int candidate, ChainStatusType);
+		bool							checkForSinglesChainsReductions_DifferentColors (int candidate);
+		void							printColors();
 
 		void							reset ();
 		void							print (int level=0);
