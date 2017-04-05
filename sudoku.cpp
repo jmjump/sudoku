@@ -55,6 +55,9 @@ const char* algorithmToString (AlgorithmType algorithm) {
 		ALG_CHECK_FOR_XWINGS, "X-wings",
 		ALG_CHECK_FOR_YWINGS, "Y-wings",
 		ALG_CHECK_FOR_SINGLES_CHAINS, "single's chains",
+		ALG_CHECK_FOR_SWORDFISH, "swordfish",
+		ALG_CHECK_FOR_NAKED_QUADS, "naked quads",
+		ALG_CHECK_FOR_HIDDEN_QUADS, "hidden quads",
 	};
 
 	return getNameForValue(algorithm, ArraySize(algorithmNames), algorithmNames);
@@ -975,8 +978,9 @@ bool CellSet::checkForXWingReductions (int candidate, int numLocations, int loca
 		Cell* cell = m_cells[location];
 
 		if (cell->tryToReduce(candidate)) {
-			TRACE(1, "%s(this=%s, candidate=%d, location=%d) %s cannot be a %d\n",
-				__CLASSFUNCTION__, m_name.c_str(), candidate+1, location+1, cell->getName().c_str(), candidate+1);
+			TRACE(1, "%s(this=%s, candidate=%d, locations=%s) %s cannot be a %d\n",
+				__CLASSFUNCTION__, m_name.c_str(), candidate+1,
+				intListToString(numLocations, locations), cell->getName().c_str(), candidate+1);
 			anyReductions = true;
 		}
 	}
@@ -985,6 +989,94 @@ bool CellSet::checkForXWingReductions (int candidate, int numLocations, int loca
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+
+typedef struct {
+	CellSet*		m_cellSet;
+	int				m_locations[g_N];
+} XWingInfo;
+
+// X-Wing rule:
+// When there are:
+//	1) only "n" possible cells for a value in each of "n" different rows/cols,
+//  2) and these candidates also lie in the same column/row,
+// then all other candidates for this value in those columns/rows can be eliminated
+bool CellSetCollection::checkForXWings (int n, int candidate) {
+	TRACE(3, "%s(this=%s, n=%d, candidate=%d)\n", __CLASSFUNCTION__, m_name.c_str(), n, candidate+1);
+
+	// Check for CellSets that have "candidate" in exactly n locations
+	XWingInfo xWingInfo[g_N];
+	int numCellSetsWithCandidateInNLocations = 0;
+	ForEachInCellSetArray(m_cellSets, cellSet) {
+		int locations[g_N];
+		int numLocations = cellSet->getLocationsForCandidate(candidate, locations);
+		TRACE(3, "%s(this=%s, candidate=%d) trying %s: locations=%s\n",
+			__CLASSFUNCTION__, m_name.c_str(), candidate+1, cellSet->getName().c_str(),
+			intListToString(numLocations, locations));
+
+		// If this CellSet has candidate in exactly "n" locations, then save that info
+		if (numLocations == n) {
+			XWingInfo* info = &xWingInfo[numCellSetsWithCandidateInNLocations++];
+			info->m_cellSet = cellSet;
+			memcpy(info->m_locations, locations, sizeof(locations));
+		}
+	}
+
+	bool anyReductions = false;
+
+	// n.b., we found numCellSetsWithCandidateInNLocations CellSets.
+	// If this number is less than "n", then we're finished.
+	// If this number is equal to "n", then we need to see if the locations in all "n" match.
+	// If this number is greater than "n", then it's more complicated. We have to check
+	//     for all combinations of "n" CellSets to see if *any* match. Sorry 'bout that!
+	for (int i=0; i<numCellSetsWithCandidateInNLocations-n+1; i++) {
+		XWingInfo* infoToMatch = &xWingInfo[i];
+
+		CellSet* matchingCellSets[g_N];
+		int numMatches = 0;
+		matchingCellSets[numMatches++] = infoToMatch->m_cellSet;
+		for (int j=i+1; j<numCellSetsWithCandidateInNLocations; j++) {
+			XWingInfo* info = &xWingInfo[j];
+
+			if (memcmp(infoToMatch->m_locations, info->m_locations, n * sizeof(info->m_locations[0])) == 0) {
+				matchingCellSets[numMatches++] = info->m_cellSet;
+			}
+		}
+
+		// Did we have exactly "n" matches?
+		if (numMatches == n) {
+			ForEachInCellSetArray(m_cellSets, cellSet) {
+				// Make sure it's not one of the "matching" cellSets
+				bool isOneOfTheMatchingCellSets = false;
+				for (int i=0; i<n; i++) {
+					if (cellSet == matchingCellSets[i]) {
+						isOneOfTheMatchingCellSets = true;
+						break;
+					}
+				}
+				if (isOneOfTheMatchingCellSets) {
+					continue;
+				}
+
+				bool status = cellSet->checkForXWingReductions(candidate, n, infoToMatch->m_locations);
+				if (status) {
+					TRACE(2, "%s(this=%s, n=%d, candidate=%d) locations=%s\n",
+						__CLASSFUNCTION__, m_name.c_str(), n, candidate+1,
+						intListToString(n, infoToMatch->m_locations));
+					for (int i=0; i<n; i++) {
+						CellSet* cs = matchingCellSets[i];
+						TRACE(2, "    %s\n", cs->getName().c_str());
+					}
+
+					anyReductions = true;
+				}
+			}
+		}
+	}
+
+	return anyReductions;
+}
+
+#ifdef JEROME
 
 // X-Wing rule:
 // When there are:
@@ -1049,6 +1141,8 @@ bool CellSetCollection::checkForXWings (int candidate) {
 	return anyReductions;
 }
 
+#endif
+
 void CellSetCollection::print (int level) {
 	int row=0;
 	ForEachInCellSetArray(m_cellSets, cellSet) {
@@ -1060,18 +1154,6 @@ void CellSetCollection::print (int level) {
 
 		printf("%s\n", str.c_str());
 	}
-}
-
-bool CellSetCollection::checkForXWings () {
-	TRACE(3, "%s(this=%s)\n", __CLASSFUNCTION__, m_name.c_str());
-
-	bool anyReductions = false;
-
-	for (int candidate=0; candidate<g_N; candidate++) {
-		anyReductions |= checkForXWings(candidate);
-	}
-
-	return anyReductions;
 }
 
 bool CellSetCollection::checkForLockedCandidates () {
@@ -1230,13 +1312,15 @@ bool SudokuSolver::checkForLockedCandidates () {
 	return anyChanges;
 }
 
-bool SudokuSolver::checkForXWings () {
-	TRACE(3, "%s()\n", __CLASSFUNCTION__);
+bool SudokuSolver::checkForXWings (int n) {
+	TRACE(3, "%s(n=%d)\n", __CLASSFUNCTION__, n);
 
 	bool anyChanges = false;
 
-	anyChanges |= m_allRows.checkForXWings();
-	anyChanges |= m_allCols.checkForXWings();
+	for (int candidate=0; candidate<g_N; candidate++) {
+		anyChanges |= m_allRows.checkForXWings(n, candidate);
+		anyChanges |= m_allCols.checkForXWings(n, candidate);
+	}
 
 	return anyChanges;
 }
@@ -1562,13 +1646,22 @@ bool SudokuSolver::runAlgorithm (AlgorithmType algorithm) {
 			return checkForHiddenSubsets(3);
 
 		case ALG_CHECK_FOR_XWINGS:
-			return checkForXWings();
+			return checkForXWings(2);
 
 		case ALG_CHECK_FOR_YWINGS:
 			return checkForYWings();
 
 		case ALG_CHECK_FOR_SINGLES_CHAINS:
 			return checkForSinglesChains();
+
+		case ALG_CHECK_FOR_SWORDFISH:
+			return checkForXWings(3);
+
+		case ALG_CHECK_FOR_NAKED_QUADS:
+			return checkForNakedSubsets(4);
+
+		case ALG_CHECK_FOR_HIDDEN_QUADS:
+			return checkForHiddenSubsets(4);
 
 		default:
 			break;

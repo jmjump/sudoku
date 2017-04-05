@@ -36,6 +36,9 @@ typedef enum {
 	ALG_CHECK_FOR_XWINGS,
 	ALG_CHECK_FOR_YWINGS,
 	ALG_CHECK_FOR_SINGLES_CHAINS,
+	ALG_CHECK_FOR_SWORDFISH,
+	ALG_CHECK_FOR_NAKED_QUADS,
+	ALG_CHECK_FOR_HIDDEN_QUADS,
 
 	NUM_ALGORITHMS
 } AlgorithmType;
@@ -273,8 +276,7 @@ class CellSetCollection {
 		bool							checkForLockedCandidates ();
 		bool							checkForNakedSubsets (int n);
 		bool							checkForHiddenSubsets (int n);
-		virtual bool					checkForXWings ();
-		bool							checkForXWings (int candidate);
+		virtual bool					checkForXWings (int n, int candidate);
 
 		// For chain coloring
 		bool							checkForSinglesChainsReductions (int candidate);
@@ -338,7 +340,7 @@ class AllBoxes : public CellSetCollection {
 											return index;
 										}
 
-		bool							checkForXWings () { return false; }
+		bool							checkForXWings (int n, int candidate) { return false; }
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -429,7 +431,7 @@ class SudokuSolver {
 		bool							checkForNakedSubsets (int n);
 		bool							checkForHiddenSubsets (int n);
 		bool							checkForLockedCandidates ();
-		bool							checkForXWings ();
+		bool							checkForXWings (int n);
 		bool							checkForYWings ();
 
 		// For singles chains
