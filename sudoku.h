@@ -39,6 +39,7 @@ typedef enum {
 	ALG_CHECK_FOR_SWORDFISH,
 	ALG_CHECK_FOR_NAKED_QUADS,
 	ALG_CHECK_FOR_HIDDEN_QUADS,
+	ALG_CHECK_FOR_XYZ_WINGS,
 
 	NUM_ALGORITHMS
 } AlgorithmType;
@@ -67,27 +68,9 @@ extern const char* chainStatusToString (ChainStatusType);
 
 class Cell {
 	public:
-										Cell (int row, int col) {
-											m_row = row;
-											m_col = col;
-											m_box = (row / g_n) + (col / g_n);
+										Cell (int row, int col);
 
-											m_name = makeString("R%dC%d", m_row+1, m_col+1);
-
-											reset();
-										}
-
-										~Cell () {
-										}
-
-		void							reset () {
-											m_known = false;
-
-											for (int i=0; i<g_N; i++) {
-												m_possibles[i] = true;
-											}
-										}
-
+		void							reset ();
 		void							setValue (int value);
 
 		void							setTaken (int value) {
@@ -121,6 +104,7 @@ class Cell {
 		bool							checkForYWings ();
 		bool							checkForYWings (Cell* secondCell);
 		bool							checkForYWingReductions (int c, Cell* otherCell);
+		bool							checkForXYZWings ();
 
 										// return true if this cell could have "i" for a value. Otherwise, false
 		bool							getPossible (int i) {
@@ -175,6 +159,8 @@ class Cell {
 ////////////////////////////////////////////////////////////////////////////////
 
 class CellSet {
+	friend class Cell;
+
 	public:
 										CellSet (CollectionType collection, std::string name);
 										~CellSet () {
@@ -367,11 +353,6 @@ class AllCells {
 											return m_cells[index];
 										}
 
-		void							setValue (int row, int col, int value) {
-											Cell* cell = getCell(row, col);
-											cell->setValue(value);
-										}
-
 		bool							isSolved () {
 											for (int row=0; row<g_N; row++) {
 												for (int col=0; col<g_N; col++) {
@@ -387,6 +368,7 @@ class AllCells {
 										}
 
 		bool							checkForYWings ();
+		bool							checkForXYZWings ();
 
 		// For chain coloring
 		void							resetChains ();
@@ -404,27 +386,12 @@ class AllCells {
 
 class SudokuSolver {
 	public:
-										SudokuSolver () {
-											m_cellSetCollections[ROW_COLLECTION] = &m_allRows;
-											m_cellSetCollections[COL_COLLECTION] = &m_allCols;
-											m_cellSetCollections[BOX_COLLECTION] = &m_allBoxes;
+										SudokuSolver ();
 
-											// initialize the collections
-											for (int row=0; row<g_N; row++) {
-												for (int col=0; col<g_N; col++) {
-													Cell* cell = m_allCells.getCell(row, col);
-
-													for (int i=0; i<NUM_COLLECTIONS; i++) {
-														m_cellSetCollections[i]->setCell(row, col, cell);
-													}
-												}
-											}
-										}
-
-										~SudokuSolver () {
-										}
-
-		void							init (const char* filename);
+		int								loadGameFile (const char* filename);
+		int								loadGameString (const char* gameString);
+		int								checkGameFile (const char* filename);
+		int								checkGameString (const char* gameString);
 		void							solve ();
 		bool							tryToSolve ();
 		bool							runAlgorithm (AlgorithmType algorithm);
@@ -433,6 +400,7 @@ class SudokuSolver {
 		bool							checkForLockedCandidates ();
 		bool							checkForXWings (int n);
 		bool							checkForYWings ();
+		bool							checkForXYZWings ();
 
 		// For singles chains
 		bool							checkForSinglesChains ();

@@ -1,6 +1,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
+#include <sys/types.h> 
+#include <sys/stat.h> 
+#include <fcntl.h>
+#include <unistd.h>
 
 #include <vector>
 
@@ -58,6 +63,7 @@ const char* algorithmToString (AlgorithmType algorithm) {
 		ALG_CHECK_FOR_SWORDFISH, "swordfish",
 		ALG_CHECK_FOR_NAKED_QUADS, "naked quads",
 		ALG_CHECK_FOR_HIDDEN_QUADS, "hidden quads",
+		ALG_CHECK_FOR_XYZ_WINGS, "XYZ wings",
 	};
 
 	return getNameForValue(algorithm, ArraySize(algorithmNames), algorithmNames);
@@ -137,6 +143,24 @@ static bool isCellOnList (Cell* cell, int N, Cell* cellList[]) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+
+Cell::Cell (int row, int col) {
+	m_row = row;
+	m_col = col;
+	m_box = (row / g_n) + (col / g_n);
+	
+	m_name = makeString("R%dC%d", m_row+1, m_col+1);
+
+	reset();
+}
+
+void Cell::reset () {
+	m_known = false;
+
+	for (int i=0; i<g_N; i++) {
+		m_possibles[i] = true;
+	}
+}
 
 void Cell::setValue (int value) {
 	TRACE(3, "%s(row=%d, col=%d, value=%d)\n",
@@ -380,9 +404,7 @@ bool Cell::checkForYWingReductions (int c, Cell* otherCell) {
 			__CLASSFUNCTION__, m_name.c_str(), c+1, otherCell->getName().c_str(),
 			cellSet->getName().c_str());
 
-		for (int location=0; location<g_N; location++) {
-			Cell* yetAnotherCell = cellSet->getCell(location);
-
+		ForEachInCellArray(cellSet->m_cells, yetAnotherCell) {
 			if ((yetAnotherCell == this) || (yetAnotherCell == otherCell)) {
 				continue;
 			}
@@ -443,8 +465,7 @@ bool Cell::checkForYWings (Cell* secondCell) {
 	bool anyChanges = false;
 
 	ForEachInCellSetArray(m_cellSets, cellSet) {
-		for (int location=0; location<g_N; location++) {
-			Cell* thirdCell = cellSet->getCell(location);
+		ForEachInCellArray(cellSet->m_cells, thirdCell) {
 			if ((thirdCell == firstCell) || (thirdCell == secondCell)) {
 				continue;
 			}
@@ -503,8 +524,7 @@ bool Cell::checkForYWings () {
 	bool anyChanges = false;
 
 	ForEachInCellSetArray(m_cellSets, cellSet) {
-		for (int location=0; location<g_N; location++) {
-			Cell* secondCell = cellSet->getCell(location);
+		ForEachInCellArray(cellSet->m_cells, secondCell) {
 			if (secondCell == this) {
 				continue;
 			}
@@ -523,8 +543,6 @@ CellSet::CellSet (CollectionType collection, std::string name) {
 
 	m_collection = collection;
 	m_name = name;
-
-	reset();
 }
 
 std::string CellSet::toString (int level) {
@@ -581,6 +599,10 @@ void CellSet::reset () {
 
 	for (int i=0; i<g_N; i++) {
 		m_isTaken[i] = false;
+	}
+
+	ForEachInCellArray(m_cells, cell) {
+		cell->reset();
 	}
 }
 
@@ -1076,73 +1098,6 @@ bool CellSetCollection::checkForXWings (int n, int candidate) {
 	return anyReductions;
 }
 
-#ifdef JEROME
-
-// X-Wing rule:
-// When there are:
-//	1) only two possible cells for a value in each of two different rows,
-//  2) and these candidates also lie in the same column,
-// then all other candidates for this value in the columns can be eliminated
-bool CellSetCollection::checkForXWings (int candidate) {
-	TRACE(3, "%s(this=%s, candidate=%d)\n", __CLASSFUNCTION__, m_name.c_str(), candidate+1);
-
-	bool anyReductions = false;
-
-	// Check for CellSets that have "candidate" in exactly 2 locations
-	for (int i=0; i<ArraySize(m_cellSets)-1; i++) {
-		CellSet* cellSet1 = m_cellSets[i];
-
-		int cellSet1_locations[g_N];
-		int numLocations = cellSet1->getLocationsForCandidate(candidate, cellSet1_locations);
-		TRACE(3, "%s(this=%s, candidate=%d) trying %s: %d\n",
-			__CLASSFUNCTION__, m_name.c_str(), candidate+1, cellSet1->getName().c_str(), numLocations);
-
-		if (numLocations == 2) {
-			for (int j=i+1; j<ArraySize(m_cellSets); j++) {
-				CellSet* cellSet2 = m_cellSets[j];
-
-				int cellSet2_locations[g_N];
-				int numLocations = cellSet2->getLocationsForCandidate(candidate, cellSet2_locations);
-				TRACE(3, "%s(this=%s, candidate=%d) trying %s: %d\n",
-					__CLASSFUNCTION__, m_name.c_str(), candidate+1, cellSet2->getName().c_str(), numLocations);
-				if (numLocations != 2) {
-					continue;
-				}
-
-				// Do the locations match? If not, keep looking!
-				if ((cellSet1_locations[0] != cellSet2_locations[0]) ||
-					(cellSet1_locations[1] != cellSet2_locations[1])) {
-					TRACE(3, "%s(this=%s, candidate=%d) locations don't match\n",
-						__CLASSFUNCTION__, m_name.c_str(), candidate+1);
-
-					continue;
-				}
-
-				TRACE(2, "%s(this=%s, candidate=%d) found an XWing, check for reductions\n",
-					__CLASSFUNCTION__, m_name.c_str(), candidate+1);
-				TRACE(2, "    %s locations %d and %d\n",
-					cellSet1->getName().c_str(), cellSet1_locations[0]+1, cellSet1_locations[1]+1);
-				TRACE(2, "    %s locations %d and %d\n",
-					cellSet2->getName().c_str(), cellSet2_locations[0]+1, cellSet2_locations[1]+1);
-
-				ForEachInCellSetArray(m_cellSets, cellSet) {
-					if ((cellSet == cellSet1) || (cellSet == cellSet2)) {
-						continue;
-					}
-
-					anyReductions |= cellSet->checkForXWingReductions(candidate, numLocations, cellSet1_locations);
-				}
-
-				break; // TBD: could probably be a "return anyReductions;" (we've found an XWing for this candidate, how can there be any more?)
-			}
-		}
-	}
-
-	return anyReductions;
-}
-
-#endif
-
 void CellSetCollection::print (int level) {
 	int row=0;
 	ForEachInCellSetArray(m_cellSets, cellSet) {
@@ -1230,33 +1185,38 @@ bool AllCells::checkForYWings () {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-void SudokuSolver::init (const char* filename) {
-	FILE* fp = fopen(filename, "r");
-	if (!fp) {
-		TRACE(0, "Error: unable to open \"%s\"\n", filename);
-		return;
+SudokuSolver::SudokuSolver () {
+	m_cellSetCollections[ROW_COLLECTION] = &m_allRows;
+	m_cellSetCollections[COL_COLLECTION] = &m_allCols;
+	m_cellSetCollections[BOX_COLLECTION] = &m_allBoxes;
+
+	// initialize the collections
+	for (int row=0; row<g_N; row++) {
+		for (int col=0; col<g_N; col++) {
+			Cell* cell = m_allCells.getCell(row, col);
+
+			ForEachInCellSetCollectionArray(m_cellSetCollections, cellSetCollection) {
+				cellSetCollection->setCell(row, col, cell);
+			}
+		}
 	}
 
+	reset(); // for good measure
+}
+
+int SudokuSolver::loadGameString (const char* gameString) {
 	reset();
 
-	char buffer[100]; // TBD: make variable
 	for (int row=0; row<g_N; ) {
-		if (!fgets(buffer, sizeof(buffer), fp)) {
-			break;
-		}
-		if (strlen(buffer) < g_N) {
-			continue;
-		}
-
-		int col=0;
-		for (int i=0; col<g_N; i++) {
-			if (buffer[i] == ' ') {
+		for (int col=0; col<g_N; gameString++) {
+			if (*gameString == '-') {
+				// blank
+			} else if ((*gameString >= '1') && (*gameString <= '9')) {
+				int value = *gameString - '1';
+				m_allCells.getCell(row, col)->setValue(value);
+			} else {
+				// anything else is window dressing
 				continue;
-			}
-			if (buffer[i] != '-') {
-				int value;
-				sscanf(&buffer[i], "%1d", &value);
-				m_allCells.setValue(row, col, value-1);
 			}
 
 			col++;
@@ -1265,9 +1225,72 @@ void SudokuSolver::init (const char* filename) {
 		row++;
 	}
 
-	fclose(fp);
+	 return validate() ? 0 : -1;
+}
 
-	validate();
+int SudokuSolver::checkGameString (const char* gameString) {
+	for (int row=0; row<g_N; ) {
+		for (int col=0; col<g_N; gameString++) {
+			// ignore whitespace
+			if (isspace(*gameString)) {
+				continue;
+			}
+
+			if ((*gameString >= '1') && (*gameString <= '9')) {
+				int correctValue = *gameString - '1';
+
+				int gameValue = m_allCells.getCell(row, col)->getValue();
+
+				if (gameValue != correctValue) {
+					TRACE(0, "%s() error: value[row=%d][col=%d]=%d != %d\n",
+						__CLASSFUNCTION__, row+1, col+1, gameValue+1, correctValue+1);
+					return -1;
+				}
+			} else {
+				TRACE(0, "%s() error in row %d col %d, ('%c')\n",
+					__CLASSFUNCTION__, row+1, col+1, *gameString);
+				return -1;
+			}
+
+			col++;
+		}
+
+		row++;
+	}
+
+	return 0;
+}
+
+char* readGameFile (const char* filename) {
+	int fd = open(filename, O_RDONLY);
+	if (fd < 0) {
+		TRACE(0, "Error: unable to open \"%s\"\n", filename);
+		return NULL;
+	}
+
+	#define MIN_GAME_FILE_SIZE (g_N*g_N)
+	static char buffer[MIN_GAME_FILE_SIZE + 100];
+	ssize_t readLen = read(fd, buffer, sizeof(buffer));
+	close(fd);
+
+	if (readLen < MIN_GAME_FILE_SIZE) {
+		TRACE(0, "Error: file not big enough (%d)\n", readLen);
+		return NULL;
+	}
+
+	return buffer;
+}
+
+int SudokuSolver::loadGameFile (const char* filename) {
+	char* buffer = readGameFile(filename);
+
+	return buffer ? loadGameString(buffer) : -1;
+}
+
+int SudokuSolver::checkGameFile (const char* filename) {
+	char* buffer = readGameFile(filename);
+
+	return buffer ? checkGameString(buffer) : -1;
 }
 
 void SudokuSolver::reset () {
@@ -1620,6 +1643,66 @@ bool SudokuSolver::checkForSinglesChains () {
 	return anyChanges;
 }
 
+bool Cell::checkForXYZWings () {
+	TRACE(3, "%s(this=%s)\n", __CLASSFUNCTION__, m_name.c_str());
+
+	Cell* firstCell = this;
+
+	int firstCellPossibleValues[g_N];
+	int numFirstCellPossibleValues = firstCell->getPossibleValues(firstCellPossibleValues);
+	if (numFirstCellPossibleValues != 3) {
+		return false;
+	}
+
+TRACE(1, "%s(this=%s) has 3 possible values: %s\n", __CLASSFUNCTION__, m_name.c_str(), intListToString(numFirstCellPossibleValues, firstCellPossibleValues));
+
+	ForEachInCellSetArray(m_cellSets, cellSet) {
+		ForEachInCellArray(cellSet->m_cells, secondCell) {
+		//for (int location=0; location<g_N; location++) {
+			//Cell* secondCell = cellSet->getCell(location);
+
+			int secondCellPossibleValues[g_N];
+    		int numSecondCellPossibleValues = secondCell->getPossibleValues(secondCellPossibleValues);
+    		if (numSecondCellPossibleValues != 2) {
+				continue;
+    		}
+
+TRACE(1, "%s(this=%s) %s has 2 possible values: %s\n", __CLASSFUNCTION__, m_name.c_str(),
+secondCell->getName().c_str(), intListToString(numSecondCellPossibleValues, secondCellPossibleValues));
+
+			// Make sure the two values of the second cell match two of the three values of the first cell
+			if (!isValueOnList(secondCellPossibleValues[0], numFirstCellPossibleValues, firstCellPossibleValues) ||
+				!isValueOnList(secondCellPossibleValues[1], numFirstCellPossibleValues, firstCellPossibleValues)) {
+				continue;
+			}
+
+TRACE(1, "    so far, so good!\n");
+
+
+		}
+	}
+
+	return false;
+}
+
+bool AllCells::checkForXYZWings () {
+	TRACE(3, "%s()\n", __CLASSFUNCTION__);
+
+	bool anyChanges = false;
+
+	ForEachInCellArray(m_cells, cell) {
+		anyChanges |= cell->checkForXYZWings();
+	}
+
+	return anyChanges;
+}
+
+bool SudokuSolver::checkForXYZWings () {
+	TRACE(3, "%s()\n", __CLASSFUNCTION__);
+
+	return m_allCells.checkForXYZWings();
+}
+
 bool SudokuSolver::runAlgorithm (AlgorithmType algorithm) {
 	TRACE(3, "%s(algorithm=%s)\n", __CLASSFUNCTION__, algorithmToString(algorithm));
 
@@ -1662,6 +1745,9 @@ bool SudokuSolver::runAlgorithm (AlgorithmType algorithm) {
 
 		case ALG_CHECK_FOR_HIDDEN_QUADS:
 			return checkForHiddenSubsets(4);
+
+		case ALG_CHECK_FOR_XYZ_WINGS:
+			return checkForXYZWings();
 
 		default:
 			break;

@@ -58,6 +58,68 @@ static void printVersion (const char* argv0) {
 SudokuSolver* g_solver;
 
 ////////////////////////////////////////////////////////////////////////////////
+#define QUOTE(...) #__VA_ARGS__
+
+const char* puzzle1 = QUOTE(
+--3 9-- -51
+546 -18 3--
+--- --7 42-
+
+--9 -5- -3-
+2-- 6-3 --4
+-8- -7- 2--
+
+-97 3-- ---
+--1 82- 947
+85- --4 6--);
+
+const char* solution1 = QUOTE(
+723 946 851
+546 218 379
+918 537 426
+
+169 452 738
+275 683 194
+384 179 265
+
+497 361 582
+631 825 947
+852 794 613);
+
+struct TestCase {
+	const char*				m_testDescription;
+	const char*				m_gameFilename;
+	const char*				m_solutionFilename;
+} g_testCases [] = {
+	"naked singles", "naked-singles.txt", "naked-singles.solution.txt",
+	"hidden singles", "hidden-singles.txt", "hidden-singles.solution.txt",
+	"swordfish", "swordfish.txt", "swordfish.solution.txt"
+};
+
+static void testSolver () {
+	for (int i=0; i<ArraySize(g_testCases); i++) {
+		TestCase* testCase = &g_testCases[i];
+
+		const char* testDescription = testCase->m_testDescription;
+		const char* gameFilename = testCase->m_gameFilename;
+		const char* solutionFilename = testCase->m_solutionFilename;
+
+		TRACE(0, "TestCase: %s\n", testDescription);
+
+		int status;
+		if ((status = g_solver->loadGameFile(gameFilename)) < 0) {
+			TRACE(0, "error: unable to load '%s'\n", gameFilename);
+		} else {
+			g_solver->solve();
+
+			status = g_solver->checkGameFile(solutionFilename);
+		}
+
+		TRACE(0, "TestCase: %s(%s) %s\n", testDescription, gameFilename, (status == 0 ? "PASSED" : "FAILED"));
+	}
+}
+
+////////////////////////////////////////////////////////////////////////////////
 
 static void processGame (CLI* cli) {
 	char* filename = cli->getStringParameter();
@@ -65,7 +127,7 @@ static void processGame (CLI* cli) {
 		return;
 	}
 
-	g_solver->init(filename);
+	g_solver->loadGameFile(filename);
 }
 
 static void processPrint (CLI* cli) {
@@ -96,11 +158,9 @@ static void processRun (CLI* cli) {
 static void processAlgorithm (CLI* cli) {
 	int alg = cli->getIntParameter(false, -1);
 
-printf("alg=%d\n", alg);
 	if (alg == -1) {
 		g_solver->listAlgorithms();
 	} else {
-printf("run alg=%d\n", alg);
 		g_solver->runAlgorithm((AlgorithmType)alg);
 	}
 }
@@ -138,9 +198,13 @@ int main (int argc, char* argv[]) {
 
 	g_solver = new SudokuSolver();
 
+	if (runUnitTests) {
+		testSolver();
+	}
+
 	if (optind < argc) {
         const char* filename = argv[optind];
-		g_solver->init(filename);
+		g_solver->loadGameFile(filename);
 		g_solver->print();
 		if (runSolver) {
 			g_solver->solve();
@@ -153,7 +217,7 @@ int main (int argc, char* argv[]) {
 	cli.addCommand("game", processGame, "<filename> : load a game from the specified file");
 	cli.addCommand("print", processPrint, "[<detail level>] : print the game board");
 	cli.addCommand("step", processStep, "[<numSteps>] : run the algorithm numSteps times (default=1)");
-	cli.addCommand("run", processRun, ": run the solver to completion");
+	cli.addCommand("run", processRun, "run the solver to completion");
 	cli.addCommand("alg", processAlgorithm, "[<alg>] : run the specified algorithm");
 	cli.addCommand("validate", processValidate, "validate the puzzle");
 
