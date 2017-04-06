@@ -60,32 +60,6 @@ SudokuSolver* g_solver;
 ////////////////////////////////////////////////////////////////////////////////
 #define QUOTE(...) #__VA_ARGS__
 
-const char* puzzle1 = QUOTE(
---3 9-- -51
-546 -18 3--
---- --7 42-
-
---9 -5- -3-
-2-- 6-3 --4
--8- -7- 2--
-
--97 3-- ---
---1 82- 947
-85- --4 6--);
-
-const char* solution1 = QUOTE(
-723 946 851
-546 218 379
-918 537 426
-
-169 452 738
-275 683 194
-384 179 265
-
-497 361 582
-631 825 947
-852 794 613);
-
 struct TestCase {
 	const char*				m_testDescription;
 	const char*				m_gameFilename;
@@ -93,6 +67,11 @@ struct TestCase {
 } g_testCases [] = {
 	"naked singles", "naked-singles.txt", "naked-singles.solution.txt",
 	"hidden singles", "hidden-singles.txt", "hidden-singles.solution.txt",
+	"locked candidates (pointing)", "lockedCandidates-pointing.txt", "lockedCandidates-pointing.solution.txt",
+	"locked candidates (claiming)", "lockedCandidates-claiming.txt", "lockedCandidates-claiming.solution.txt",
+	"X-wings", "xwing-row.txt", "xwing-row.solution.txt",
+	"singles chain", "singlesChain1.txt", "singlesChain1.solution.txt",
+	"Y-wings", "ywing.txt", "ywing.solution.txt",
 	"swordfish", "swordfish.txt", "swordfish.solution.txt"
 };
 
@@ -116,6 +95,10 @@ static void testSolver () {
 		}
 
 		TRACE(0, "TestCase: %s(%s) %s\n", testDescription, gameFilename, (status == 0 ? "PASSED" : "FAILED"));
+
+		if (status < 0) {
+			exit(0);
+		}
 	}
 }
 

@@ -25,6 +25,8 @@ class CellSetCollection;
 typedef std::vector<CellSetCollection*>		CellSetCollectionVector;
 typedef CellSetCollectionVector::iterator	CellSetCollectionVectorIterator;
 
+typedef std::vector<int>					IntVector;
+
 typedef enum {
 	ALG_CHECK_FOR_NAKED_SINGLES,
 	ALG_CHECK_FOR_HIDDEN_SINGLES,
@@ -66,50 +68,86 @@ extern const char* chainStatusToString (ChainStatusType);
 
 ////////////////////////////////////////////////////////////////////////////////
 
+class IntList : public IntVector {
+	public:
+										IntList ();
+										IntList (int n, int values[]);
+
+		bool							operator== (IntList& other);
+
+		void							addValue (int value);
+		int								getValue (int i);
+		int								getLength ();
+
+		bool							onList (int value);
+
+		const char*						toString ();
+
+		static IntList					findIntersection (IntList& listA, IntList& listB);
+};
+
+extern const char* toString (IntList&);
+
+class PossibleValues {
+	public:
+										PossibleValues ();
+
+		void							reset ();
+
+		void							setValue (int value);
+		int								getValue () { return m_value; }
+		bool							getKnown () { return m_known; }
+
+		void							setNoLongerPossible (int value);
+
+		bool							isPossible (int value);
+
+		IntList*						getList () { return &m_list; }
+
+		void							adjustList ();
+
+	protected:
+		bool							m_known;
+		int								m_value;
+		bool							m_possibleValues[g_N];
+
+		IntList							m_list;
+};
+
+////////////////////////////////////////////////////////////////////////////////
+
 class Cell {
 	public:
 										Cell (int row, int col);
 
 		void							reset ();
 		void							setValue (int value);
-
-		void							setTaken (int value) {
-											if (!m_known) {
-												m_possibles[value] = false;
-											}
-										}
+		void							setNoLongerPossible (int value);
+		bool							isPossible (int value); // return true if this cell could possibly have this value. Otherwise, false
 
 		void							setCellSet (CollectionType collection, CellSet* cellSet) {
 											m_cellSets[collection] = cellSet;
 										}
 
-		bool							getKnown () {
-											return m_known;
-										}
-
-		int								getValue () {
-											return m_value;
-										}
+		bool							getKnown () { return m_possibleValues.getKnown(); }
+		int								getValue () { return m_possibleValues.getValue(); }
 
 		bool							hasNeighbor (Cell* otherCell);
 		bool							haveExactPossibles (Cell* otherCell);
 		void							processNakedSingle ();
 		int								getPossibleValues (int possibles[]=NULL);
+		IntList*						getPossibleValuesList () { return m_possibleValues.getList(); }
 		bool							haveSamePossibles (Cell* otherCell);
 		bool							haveAnyOverlappingPossibles (Cell* otherCell);
 		bool							checkForNakedReductions (Cell* nakedCell);
-		bool							areAnyOfTheseValuesUntaken (int n, int values[]);
-		bool							hiddenSubsetReduction (int n, int values[]);
-		bool							hiddenSubsetReduction2 (int n, Cell* candidateCells[], int values[]);
+		bool							areAnyOfTheseValuesPossible (IntList&);
+		bool							hiddenSubsetReduction (IntList&);
+		bool							hiddenSubsetReduction2 (Cell* candidateCells[], IntList&);
 		bool							checkForYWings ();
 		bool							checkForYWings (Cell* secondCell);
 		bool							checkForYWingReductions (int c, Cell* otherCell);
 		bool							checkForXYZWings ();
-
-										// return true if this cell could have "i" for a value. Otherwise, false
-		bool							getPossible (int i) {
-											return (!m_known && m_possibles[i]);
-										}
+		bool							checkForXYZWings (Cell* secondCell);
 
 		bool							tryToReduce (int c);
 
@@ -136,14 +174,15 @@ class Cell {
 		bool							canSee (ChainStatusType);
 
 	protected:
+		void							adjustPossibleValuesList ();
+
+	protected:
 		std::string						m_name;
 		int								m_row;
 		int								m_col;
 		int								m_box;
-		bool							m_known;
-		int								m_value;
 
-		bool							m_possibles[g_N];
+		PossibleValues					m_possibleValues;
 
 		// This cell is part of 3 collections:
 		// 1) a row
@@ -163,8 +202,6 @@ class CellSet {
 
 	public:
 										CellSet (CollectionType collection, std::string name);
-										~CellSet () {
-										}
 
 		void							reset ();
 
@@ -178,29 +215,28 @@ class CellSet {
 											return m_cells[i];
 										}
 
-		void							setTaken (int value);
-
-		int								getUntakenNumbers(int untakenNumbers[]=NULL);
+		void							setNoLongerPossible (int value);
+		IntList*						getPossibleValuesList () { return m_possibleValues.getList(); }
 
 		void							getBoxCells (Cell* boxCells[], bool isRow, int i);
 		bool							cellInSet (Cell* cell, Cell* cellSet[]);
 		bool							checkForLockedCandidates ();
 		bool							checkForLockedCandidate (int c);
-		bool							checkForLockedCandidate2 (int candidate, CollectionType collection, int numLocations, int locations[]);
-		bool							inSameRCB (CollectionType collection, int numLocations, int locations[]);
+		bool							checkForLockedCandidate2 (int candidate, CollectionType collection, IntList& locations);
+		bool							inSameRCB (CollectionType collection, IntList& locations);
 		bool							lockedCandidateReduction (int candidate, int numCells, Cell* cells[]);
 		int								findMatchingCells (Cell* cellToMatch, Cell* matchingCells[]);
-		bool							checkForXWingReductions (int candidate, int numLocations, int locations[]);
+		bool							checkForXWingReductions (int candidate, IntList& locations);
 
 		bool							tryToReduce (int N, Cell* matchingCells[]);
 
 		bool							runAlgorithm (AlgorithmType algorithm);
 		bool							checkForNakedSubsets (int n);
 		bool							checkForHiddenSubsets (int n);
-		bool							checkForHiddenSubsets (int n, int permutation[]);
-		bool							hiddenSubsetReduction (int n, int permutation[]);
-		bool							hiddenSubsetReduction2 (int n, Cell* candidateCells[], int values[]);
-		int								getLocationsForCandidate (int candidate, int locations[]);
+		bool							checkForHiddenSubsets (IntList& permutation);
+		bool							hiddenSubsetReduction (IntList& permutation);
+		bool							hiddenSubsetReduction2 (Cell* candidateCells[], IntList& permutation);
+		IntList							getLocationsForCandidate (int candidate);
 
 		bool							hasCandidateCell (Cell* candidateCell);
 		bool							hasAllCandidateCells (int n, Cell* candidateCells[]);
@@ -222,8 +258,9 @@ class CellSet {
 		CollectionType					m_collection;
 		std::string						m_name;
 
+		PossibleValues					m_possibleValues;
+
 		Cell*							m_cells[g_N];
-		bool							m_isTaken[g_N];
 };
 
 ////////////////////////////////////////////////////////////////////////////////

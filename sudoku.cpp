@@ -89,6 +89,8 @@ const char* chainStatusToString (ChainStatusType chainStatus) {
 	return getNameForValue(chainStatus, ArraySize(chainStatusNames), chainStatusNames);
 }
 
+////////////////////////////////////////////////////////////////////////////////
+
 static const char* cellListToString (int numCells, Cell* cells[]) {
 	static char buffer[256];
 	char* p = buffer;
@@ -106,14 +108,51 @@ static const char* cellListToString (int numCells, Cell* cells[]) {
 	return buffer;
 }
 
-static const char* intListToString (int n, int values[]) {
+////////////////////////////////////////////////////////////////////////////////
+
+IntList::IntList () {
+}
+
+IntList::IntList (int n, int values[]) {
+	for (int i=0; i<n; i++) {
+		addValue(values[i]);
+	}
+}
+
+bool IntList::operator== (IntList& other) {
+	if (size() != other.size()) {
+		return false;
+	}
+
+	for (int i=0; i<size(); i++) {
+		if (getValue(i) != other.getValue(i)) {
+			return false;
+		}
+	}
+
+	return true;
+}
+
+void IntList::addValue (int value) {
+	push_back(value);
+}
+
+int IntList::getValue (int i) {
+	return (*this)[i];
+}
+
+int IntList::getLength () {
+	return size();
+}
+
+const char* IntList::toString () {
 	static char buffer[100];
 	char* p = buffer;
 
 	p += sprintf(p, "[");
 	char* separator = "";
-	for (int i=0; i<n; i++) {
-		p += sprintf(p, "%s%d", separator, values[i]+1);
+	for (int i=0; i<size(); i++) {
+		p += sprintf(p, "%s%d", separator, getValue(i)+1);
 		separator = ",";
 	}
 	p += sprintf(p, "]");
@@ -121,15 +160,30 @@ static const char* intListToString (int n, int values[]) {
 	return buffer;
 }
 
-static bool isValueOnList (int value, int n, int values[]) {
-	for (int i=0; i<n; i++) {
-		if (values[i] == value) {
+bool IntList::onList (int value) {
+	for (int i=0; i<size(); i++) {
+		if (getValue(i) == value) {
 			return true;
 		}
 	}
 
 	return false;
 }
+
+IntList IntList::findIntersection (IntList& listA, IntList& listB) {
+	IntList intersection;
+
+	for (int i=0; i<listA.size(); i++) {
+		int value = listA[i];
+		if (listB.onList(value)) {
+			intersection.push_back(value);
+		}
+	}
+
+	return intersection;
+}
+
+////////////////////////////////////////////////////////////////////////////////
 
 // return true if the specified cell is on the list of N cells
 static bool isCellOnList (Cell* cell, int N, Cell* cellList[]) {
@@ -140,6 +194,49 @@ static bool isCellOnList (Cell* cell, int N, Cell* cellList[]) {
 	}
 
 	return false;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+PossibleValues::PossibleValues () {
+	reset();
+}
+
+void PossibleValues::setValue (int value) {
+	m_known = true;
+	m_value = value;
+}
+
+void PossibleValues::setNoLongerPossible (int value) {
+	m_possibleValues[value] = false;
+
+	adjustList();
+}
+
+void PossibleValues::reset () {
+	m_known = false;
+
+	for (int i=0; i<g_N; i++) {
+		m_possibleValues[i] = true;
+	}
+
+	adjustList();
+}
+
+bool PossibleValues::isPossible (int value) {
+	return !m_known && m_possibleValues[value];
+}
+
+void PossibleValues::adjustList () {
+	m_list.resize(0);
+
+	if (!m_known) {
+		for (int i=0; i<g_N; i++) {
+			if (m_possibleValues[i]) {
+				m_list.addValue(i);
+			}
+		}
+	}
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -155,31 +252,39 @@ Cell::Cell (int row, int col) {
 }
 
 void Cell::reset () {
-	m_known = false;
+	m_possibleValues.reset();
+}
 
-	for (int i=0; i<g_N; i++) {
-		m_possibles[i] = true;
-	}
+void Cell::adjustPossibleValuesList () {
+	m_possibleValues.adjustList();
 }
 
 void Cell::setValue (int value) {
 	TRACE(3, "%s(row=%d, col=%d, value=%d)\n",
 		__CLASSFUNCTION__, m_row+1, m_col+1, value+1);
 
-	m_known = true;
-	m_value = value;
+	m_possibleValues.setValue(value);
 
-	// Tell each row, col and box that this value is "taken"
+	// Tell each row, col and box that this value is no longer possible
 	ForEachInCellSetArray(m_cellSets, cellSet) {
-		cellSet->setTaken(value);
+		cellSet->setNoLongerPossible(value);
 	}
 }
 
+void Cell::setNoLongerPossible (int value) {
+	m_possibleValues.setNoLongerPossible(value);
+}
+
+bool Cell::isPossible (int value) {
+	return m_possibleValues.isPossible(value);
+}
+
+// TBD: deprecate
 int Cell::getPossibleValues (int possibles[]) {
 	int numPossibleValues = 0;
 
 	for (int i=0; i<g_N; i++) {
-		if (m_possibles[i]) {
+		if (m_possibleValues.isPossible(i)) {
 			TRACE(4, "%s(this=%s) can be %d\n",
 				__CLASSFUNCTION__, m_name.c_str(), i+1);
 
@@ -203,7 +308,7 @@ bool Cell::haveSamePossibles (Cell* otherCell) {
 		__CLASSFUNCTION__, m_name.c_str(), otherCell->getName().c_str());
 
 	for (int i=0; i<g_N; i++) {
-		if (otherCell->m_possibles[i] && !m_possibles[i]) {
+		if (otherCell->m_possibleValues.isPossible(i) && !m_possibleValues.isPossible(i)) {
 			TRACE(3, "%s(this=%s, otherCell=%s) position %d is not possible in this cell\n",
 				__CLASSFUNCTION__, m_name.c_str(), otherCell->getName().c_str(), i+1);
 
@@ -220,7 +325,7 @@ bool Cell::haveExactPossibles (Cell* otherCell) {
 		__CLASSFUNCTION__, m_name.c_str(), otherCell->getName().c_str());
 
 	for (int i=0; i<g_N; i++) {
-		if (otherCell->m_possibles[i] != m_possibles[i]) {
+		if (otherCell->isPossible(i) != isPossible(i)) {
 			TRACE(3, "%s(this=%s, otherCell=%s) position %d is different\n",
 				__CLASSFUNCTION__, m_name.c_str(), otherCell->getName().c_str(), i+1);
 
@@ -235,7 +340,7 @@ bool Cell::haveAnyOverlappingPossibles (Cell* otherCell) {
 		__CLASSFUNCTION__, m_name.c_str(), otherCell->getName().c_str());
 
 	for (int i=0; i<g_N; i++) {
-		if (otherCell->m_possibles[i] && m_possibles[i]) {
+		if (otherCell->isPossible(i) && isPossible(i)) {
 			TRACE(3, "%s(this=%s, otherCell=%s) position %d is possible in both cells\n",
 				__CLASSFUNCTION__, m_name.c_str(), otherCell->getName().c_str(), i+1);
 
@@ -250,11 +355,11 @@ bool Cell::tryToReduce (int value) {
 	TRACE(4, "%s(this=%s, value=%d)\n",
 		__CLASSFUNCTION__, m_name.c_str(), value+1);
 
-	if (getPossible(value)) {
+	if (isPossible(value)) {
 		TRACE(3, "%s(this=%s, candidate=%d) %s cannot be a %d\n",
 			__CLASSFUNCTION__, m_name.c_str(), value+1, m_name.c_str(), value+1);
 
-		m_possibles[value] = false;
+		m_possibleValues.setNoLongerPossible(value);
 		return true;
 	}
 
@@ -266,15 +371,15 @@ void Cell::processNakedSingle () {
 	TRACE(3, "%s(this=%s)\n",
 		__CLASSFUNCTION__, m_name.c_str());
 
-	if (m_known) {
-		TRACE(0, "    ERROR! value already known (%d)\n", m_value+1);
+	if (m_possibleValues.getKnown()) {
+		TRACE(0, "    ERROR! value already known (%d)\n", m_possibleValues.getValue()+1);
 	} else {
 		int onlyValue = -1;
 
 		for (int i=0; i<g_N; i++) {
-			TRACE(3, "    %d: %s BE\n", i+1, m_possibles[i] ? "CAN" : "CAN'T");
+			TRACE(3, "    %d: %s BE\n", i+1, isPossible(i) ? "CAN" : "CAN'T");
 
-			if (m_possibles[i]) {
+			if (isPossible(i)) {
 				if (onlyValue != -1) {
 					TRACE(0, "    ERROR! not a naked single (%d and %d)\n", onlyValue+1, i+1);
 					return;
@@ -303,11 +408,11 @@ bool Cell::checkForNakedReductions (Cell* nakedCell) {
 
 	// Any "possible" values in the nakedCall are no longer possible in this cell
 	for (int value=0; value<g_N; value++) {
-		if (nakedCell->getPossible(value) && this->getPossible(value)) {
+		if (nakedCell->isPossible(value) && this->isPossible(value)) {
 			TRACE(1, "%s(this=%s, nakedCell=%s) %s cannot be a %d\n",
 				__CLASSFUNCTION__, m_name.c_str(), nakedCell->getName().c_str(), m_name.c_str(), value+1);
 
-			this->setTaken(value);
+			this->setNoLongerPossible(value);
 			anyReductions = true;
 		}
 	}
@@ -315,16 +420,16 @@ bool Cell::checkForNakedReductions (Cell* nakedCell) {
 	return anyReductions;
 }
 
-bool Cell::areAnyOfTheseValuesUntaken (int n, int values[]) {
-	TRACE(3, "%s(this=%s, n=%d, values=%s)\n",
-		__CLASSFUNCTION__, m_name.c_str(), n, intListToString(n, values));
+bool Cell::areAnyOfTheseValuesPossible (IntList& values) {
+	TRACE(3, "%s(this=%s, values=%s)\n",
+		__CLASSFUNCTION__, m_name.c_str(), values.toString());
 
-	for (int i=0; i<n; i++) {
-		int value = values[i];
+	for (int i=0; i<values.getLength(); i++) {
+		int value = values.getValue(i);
 
-		if (getPossible(value)) {
-			TRACE(3, "%s(this=%s, n=%d) value[%d]=%d is possible\n",
-				__CLASSFUNCTION__, m_name.c_str(), n, i, value+1);
+		if (isPossible(value)) {
+			TRACE(3, "%s(this=%s, values=%s) value[%d]=%d is possible\n",
+				__CLASSFUNCTION__, m_name.c_str(), values.toString(), i, value+1);
 
 			return true;
 		}
@@ -334,46 +439,45 @@ bool Cell::areAnyOfTheseValuesUntaken (int n, int values[]) {
 }
 
 // this cell cannot be anything other than a value on the list
-bool Cell::hiddenSubsetReduction (int n, int values[]) {
+bool Cell::hiddenSubsetReduction (IntList& values) {
 	TRACE(3, "%s(this=%s, values=%s)\n",
-		__CLASSFUNCTION__, m_name.c_str(), intListToString(n, values));
+		__CLASSFUNCTION__, m_name.c_str(), values.toString());
 
 	// Does this cell contain any of these n values?
 	// If so, then it *can't* be any *other* value!
 
-	bool anyChanges = false;
+	bool anyReductions = false;
 
+// TBD: tryToReduce...
 	for (int value=0; value<g_N; value++) {
-		if (!m_possibles[value]) {
+		if (!isPossible(value)) {
 			continue;
 		}
 
 		// If this value is not on the list, we can reduce!
-		if (!isValueOnList(value, n, values)) {
-			TRACE(1, "%s(this=%s, n=%d, values=%s) %s cannot be a %d\n",
-				__CLASSFUNCTION__, m_name.c_str(), n, intListToString(n, values), m_name.c_str(), value+1);
+		if (!values.onList(value)) {
+			TRACE(1, "%s(this=%s, values=%s) %s cannot be a %d\n",
+				__CLASSFUNCTION__, m_name.c_str(), values.toString(), m_name.c_str(), value+1);
 
-			m_possibles[value] = false;
-			anyChanges = true;
+			m_possibleValues.setNoLongerPossible(value);
+			anyReductions = true;
 		}
 	}
 
-	return anyChanges;
+	return anyReductions;
 }
 
-bool Cell::hiddenSubsetReduction2 (int n, Cell* candidateCells[], int values[]) {
+bool Cell::hiddenSubsetReduction2 (Cell* candidateCells[], IntList& values) {
 	TRACE(3, "%s(this=%s, values=%s)\n",
-		__CLASSFUNCTION__, m_name.c_str(), intListToString(n, values));
+		__CLASSFUNCTION__, m_name.c_str(), values.toString());
 
-	bool anyChanges = false;
+	bool anyReductions = false;
 
-	for (int i=0; i<ArraySize(m_cellSets); i++) {
-		CellSet* cellSet = m_cellSets[i];
-
-		anyChanges |= cellSet->hiddenSubsetReduction2(n, candidateCells, values);
+	ForEachInCellSetArray(m_cellSets, cellSet) {
+		anyReductions |= cellSet->hiddenSubsetReduction2(candidateCells, values);
 	}
 
-	return anyChanges;
+	return anyReductions;
 }
 
 // return true if otherCell is in the same row, col or box as this cell.
@@ -397,7 +501,7 @@ bool Cell::checkForYWingReductions (int c, Cell* otherCell) {
 	TRACE(3, "%s(this=%s, c=%d, otherCell=%s)\n",
 		__CLASSFUNCTION__, m_name.c_str(), c+1, otherCell->getName().c_str());
 
-	bool anyChanges = false;
+	bool anyReductions = false;
 
 	ForEachInCellSetArray(m_cellSets, cellSet) {
 		TRACE(3, "%s(this=%s, c=%d, otherCell=%s) checking %s\n",
@@ -418,12 +522,12 @@ bool Cell::checkForYWingReductions (int c, Cell* otherCell) {
 					__CLASSFUNCTION__, m_name.c_str(), c+1, otherCell->getName().c_str(),
 					yetAnotherCell->getName().c_str(), c+1);
 
-				anyChanges = true;
+				anyReductions = true;
 			}
 		}
 	}
 
-	return anyChanges;
+	return anyReductions;
 }
 
 bool Cell::checkForYWings (Cell* secondCell) {
@@ -431,25 +535,24 @@ bool Cell::checkForYWings (Cell* secondCell) {
 		__CLASSFUNCTION__, m_name.c_str(), secondCell->getName().c_str());
 
 	Cell* firstCell = this;
-	int firstCellPossibles[g_N];
-	int numFirstCellPossibles = firstCell->getPossibleValues(firstCellPossibles);
+	IntList* firstCellPossibleValues = firstCell->getPossibleValuesList();
 
-	int secondCellPossibles[g_N];
-	int numSecondCellPossibles = secondCell->getPossibleValues(secondCellPossibles);
-	if (numSecondCellPossibles != 2) {
+	IntList* secondCellPossibleValues = secondCell->getPossibleValuesList();
+	if (secondCellPossibleValues->getLength() != 2) {
 		return false;
 	}
 
-	// Need to overlap by 1
 	int a, b, c;
-	if ((firstCellPossibles[0] == secondCellPossibles[0]) && (firstCellPossibles[1] != secondCellPossibles[1])) {
-		a = firstCellPossibles[0];
-		b = firstCellPossibles[1];
-		c = secondCellPossibles[1];
-	} else if ((firstCellPossibles[0] != secondCellPossibles[0]) && (firstCellPossibles[1] == secondCellPossibles[1])) {
-		a = firstCellPossibles[1];
-		b = firstCellPossibles[0];
-		c = secondCellPossibles[0];
+	if ((firstCellPossibleValues->getValue(0) == secondCellPossibleValues->getValue(0)) &&
+		(firstCellPossibleValues->getValue(1) != secondCellPossibleValues->getValue(1))) {
+		a = firstCellPossibleValues->getValue(0);
+		b = firstCellPossibleValues->getValue(1);
+		c = secondCellPossibleValues->getValue(1);
+	} else if ((firstCellPossibleValues->getValue(0) != secondCellPossibleValues->getValue(0)) &&
+			   (firstCellPossibleValues->getValue(1) == secondCellPossibleValues->getValue(1))) {
+		a = firstCellPossibleValues->getValue(1);
+		b = firstCellPossibleValues->getValue(0);
+		c = secondCellPossibleValues->getValue(0);
 	} else {
 		return false;
 	}
@@ -460,9 +563,9 @@ bool Cell::checkForYWings (Cell* secondCell) {
 
 	TRACE(3, "%s(this=%s) secondCell=%s also 2 possible values=%s (a=%d,b=%d,c=%d)\n",
 		__CLASSFUNCTION__, m_name.c_str(), secondCell->getName().c_str(),
-		intListToString(numSecondCellPossibles, secondCellPossibles), a+1, b+1, c+1);
+		secondCellPossibleValues->toString(), a+1, b+1, c+1);
 
-	bool anyChanges = false;
+	bool anyReductions = false;
 
 	ForEachInCellSetArray(m_cellSets, cellSet) {
 		ForEachInCellArray(cellSet->m_cells, thirdCell) {
@@ -470,21 +573,20 @@ bool Cell::checkForYWings (Cell* secondCell) {
 				continue;
 			}
 
-			int thirdCellPossibles[g_N];
-			int numThirdCellPossibles = thirdCell->getPossibleValues(thirdCellPossibles);
-			if (numThirdCellPossibles != 2) {
+			IntList* thirdCellPossibleValues = thirdCell->getPossibleValuesList();
+			if (thirdCellPossibleValues->getLength() != 2) {
 				continue;
 			}
 
 			TRACE(3, "%s(this=%s) thirdCell=%s also 2 possible values=%s\n",
 				__CLASSFUNCTION__, m_name.c_str(), thirdCell->getName().c_str(),
-				intListToString(numThirdCellPossibles, thirdCellPossibles));
+				thirdCellPossibleValues->toString());
 
 			// Make sure the values overlap correctly!
 			// thirdCell *MUST* be "b" and "c"
-			if ((thirdCellPossibles[0] == b) && (thirdCellPossibles[1] == c)) {
+			if ((thirdCellPossibleValues->getValue(0) == b) && (thirdCellPossibleValues->getValue(1) == c)) {
 				; // thirdCell = [b,c]
-			} else if ((thirdCellPossibles[1] == b) && (thirdCellPossibles[0] == c)) {
+			} else if ((thirdCellPossibleValues->getValue(1) == b) && (thirdCellPossibleValues->getValue(0) == c)) {
 				; // thirdCell = [c, b]
 			} else {
 				continue;
@@ -492,36 +594,35 @@ bool Cell::checkForYWings (Cell* secondCell) {
 
 TRACE(2, "%s(this=%s) firstCell=%s has 2 possible values=%s\n",
 __CLASSFUNCTION__, m_name.c_str(), firstCell->getName().c_str(),
-intListToString(numFirstCellPossibles, firstCellPossibles));
+firstCellPossibleValues->toString());
 
 TRACE(2, "%s(this=%s) secondCell=%s has 2 possible values=%s (a=%d,b=%d,c=%d)\n",
 __CLASSFUNCTION__, m_name.c_str(), secondCell->getName().c_str(),
-intListToString(numSecondCellPossibles, secondCellPossibles), a+1, b+1, c+1);
+secondCellPossibleValues->toString());
 
 TRACE(2, "%s(this=%s) thirdCell=%s also 2 possible values=%s\n",
 __CLASSFUNCTION__, m_name.c_str(), thirdCell->getName().c_str(),
-intListToString(numThirdCellPossibles, thirdCellPossibles));
+thirdCellPossibleValues->toString());
 
-			anyChanges = secondCell->checkForYWingReductions(c, thirdCell);
+			anyReductions = secondCell->checkForYWingReductions(c, thirdCell);
 		}
 	}
 
-	return anyChanges;
+	return anyReductions;
 }
 
 bool Cell::checkForYWings () {
 	TRACE(3, "%s(this=%s)\n", __CLASSFUNCTION__, m_name.c_str());
 
-	int possibles[g_N];
-	int numPossible = getPossibleValues(possibles);
-	if (numPossible != 2) {
+	IntList* possibleValuesList = m_possibleValues.getList();
+	if (possibleValuesList->getLength() != 2) {
 		return false;
 	}
 
 	TRACE(3, "%s(this=%s) has 2 possible values=%s\n",
-		__CLASSFUNCTION__, m_name.c_str(), intListToString(numPossible, possibles));
+		__CLASSFUNCTION__, m_name.c_str(), possibleValuesList->toString());
 
-	bool anyChanges = false;
+	bool anyReductions = false;
 
 	ForEachInCellSetArray(m_cellSets, cellSet) {
 		ForEachInCellArray(cellSet->m_cells, secondCell) {
@@ -529,11 +630,11 @@ bool Cell::checkForYWings () {
 				continue;
 			}
 
-			anyChanges |= checkForYWings(secondCell);
+			anyReductions |= checkForYWings(secondCell);
 		}
 	}
 
-	return anyChanges;
+	return anyReductions;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -575,7 +676,7 @@ std::string CellSet::toString (int level) {
 				str += "         ";
 			} else {
 				for (int i=0; i<g_N; i++) {
-					if (cell->getPossible(i)) {
+					if (cell->isPossible(i)) {
 						str += makeString("%d", i+1);
 					} else {
 						str += "-";
@@ -597,20 +698,18 @@ std::string CellSet::toString (int level) {
 void CellSet::reset () {
 	TRACE(3, "%s(this=%s)\n", __CLASSFUNCTION__, m_name.c_str());
 
-	for (int i=0; i<g_N; i++) {
-		m_isTaken[i] = false;
-	}
+	m_possibleValues.reset();
 
 	ForEachInCellArray(m_cells, cell) {
 		cell->reset();
 	}
 }
 
-void CellSet::setTaken (int value) {
-	m_isTaken[value] = true;
+void CellSet::setNoLongerPossible (int value) {
+	m_possibleValues.setNoLongerPossible(value);
 
 	ForEachInCellArray(m_cells, cell) {
-		cell->setTaken(value);
+		cell->setNoLongerPossible(value);
 	}
 }
 
@@ -654,7 +753,7 @@ bool CellSet::tryToReduce (int N, Cell* matchingCells[]) {
 bool CellSet::checkForNakedSubsets (int n) {
 	TRACE(3, "%s(this=%s, n=%d)\n", __CLASSFUNCTION__, m_name.c_str(), n);
 
-	bool anyChanges = false;
+	bool anyReductions = false;
 
 	ForEachInCellArray(m_cells, cell) {
 		// If the cell is already filled in, don't bother!
@@ -669,36 +768,21 @@ bool CellSet::checkForNakedSubsets (int n) {
 			// Short circuit! For n=1, we have a winner!
 			if (n == 1) {
 				cell->processNakedSingle();
-				anyChanges = true;
+				anyReductions = true;
 			} else {
 				Cell* matchingCells[g_N];
 				int numMatchingCells = findMatchingCells(cell, matchingCells);
 				if (numMatchingCells == n) {
-					anyChanges |= tryToReduce(n, matchingCells);
+					anyReductions |= tryToReduce(n, matchingCells);
 				}
 			}
 		}
 	}
 
 	TRACE(3, "%s() return %s\n",
-		__CLASSFUNCTION__, anyChanges ? "TRUE" : "FALSE");
+		__CLASSFUNCTION__, anyReductions ? "TRUE" : "FALSE");
 
-	return anyChanges;
-}
-
-int CellSet::getUntakenNumbers (int untakenNumbers[]) {
-	int numUntaken = 0;
-
-	for (int i=0; i<g_N; i++) {
-		if (!m_isTaken[i]) {
-			if (untakenNumbers) {
-				untakenNumbers[numUntaken] = i;
-			}
-			numUntaken++;
-		}
-	}
-
-	return numUntaken;
+	return anyReductions;
 }
 
 // return true if the candidateCell belongs to this CellSet, otherwise false
@@ -725,17 +809,18 @@ bool CellSet::hasAllCandidateCells (int n, Cell* candidateCells[]) {
 	return true;
 }
 
-bool CellSet::hiddenSubsetReduction2 (int n, Cell* candidateCells[], int values[]) {
-	TRACE(3, "%s(this=%s, n=%d, values=%s)\n",
-		__CLASSFUNCTION__, m_name.c_str(), n, intListToString(n, values));
+bool CellSet::hiddenSubsetReduction2 (Cell* candidateCells[], IntList& values) {
+	TRACE(3, "%s(this=%s, values=%s)\n",
+		__CLASSFUNCTION__, m_name.c_str(), values.toString());
 
 	// Does this CellSet have *ALL* of the candidateCells?
 	// If not, nothing to do here.
+int n = values.size(); // TBD:
 	if (!hasAllCandidateCells(n, candidateCells)) {
 		return false;
 	}
 
-	bool anyChanges = false;
+	bool anyReductions = false;
 
 	// This CellSet contains all of the candidateCells.
 	// Any cell NOT in the list of candidateCells, can NOT have any of the values in the permutation
@@ -744,96 +829,99 @@ bool CellSet::hiddenSubsetReduction2 (int n, Cell* candidateCells[], int values[
 			continue;
 		}
 
-		for (int i=0; i<n; i++) {
-			int value = values[i];
+		for (int i=0; i<values.getLength(); i++) {
+			int value = values.getValue(i);
 
-			anyChanges |= cell->tryToReduce(value);
+			anyReductions |= cell->tryToReduce(value);
 		}
 	}
 
-	return anyChanges;
+	return anyReductions;
 }
 
-bool CellSet::checkForHiddenSubsets (int n, int permutation[]) {
-	TRACE(3, "%s(this=%s, n=%d, permutation=%s)\n",
-		__CLASSFUNCTION__, m_name.c_str(), n, intListToString(n, permutation));
+bool CellSet::checkForHiddenSubsets (IntList& permutation) {
+	TRACE(3, "%s(this=%s, permutation=%s)\n",
+		__CLASSFUNCTION__, m_name.c_str(), permutation.toString());
 
-	bool anyChanges = false;
+	bool anyReductions = false;
 
 	// Are there exactly N cells that contain any of the N values in the permutation?
 	int count = 0;
 	Cell* candidateCells[g_N];
 
 	ForEachInCellArray(m_cells, cell) {
-		if (cell->areAnyOfTheseValuesUntaken(n, permutation)) {
+		if (cell->areAnyOfTheseValuesPossible(permutation)) {
 			candidateCells[count++] = cell;
 TRACE(3, "    cell %s contains at least one of these values (count=%d)\n", cell->getName().c_str(), count);
 
 			// short circuit!
-			if (count > n) {
+			if (count > permutation.size()) {
 				break;
 			}
 		}
 	}
 
-	if (count == n) {
-		TRACE(3, "%s(this=%s, n=%d, permutation=%s) subset found\n",
-			__CLASSFUNCTION__, m_name.c_str(), n, intListToString(n, permutation));
+	if (count == permutation.size()) {
+		TRACE(3, "%s(this=%s, permutation=%s) subset found\n",
+			__CLASSFUNCTION__, m_name.c_str(), permutation.toString());
 
 		// The candidateCells can *only* have the values in the permutation
-		for (int i=0; i<n; i++) {
-			anyChanges |= candidateCells[i]->hiddenSubsetReduction(n, permutation);
+		for (int i=0; i<count; i++) {
+			anyReductions |= candidateCells[i]->hiddenSubsetReduction(permutation);
 		}
 
 		// Any CellSet that has *all* of the candidate cells, might also have a reduction!
-		anyChanges |= candidateCells[0]->hiddenSubsetReduction2(n, candidateCells, permutation);
+		anyReductions |= candidateCells[0]->hiddenSubsetReduction2(candidateCells, permutation);
 	}
 
 	TRACE(3, "%s() return %s\n",
-		__CLASSFUNCTION__, anyChanges ? "TRUE" : "FALSE");
+		__CLASSFUNCTION__, anyReductions ? "TRUE" : "FALSE");
 
-	return anyChanges;
+	return anyReductions;
 }
 
 bool CellSet::checkForHiddenSubsets (int n) {
 	TRACE(3, "%s(this=%s, n=%d)\n", __CLASSFUNCTION__, m_name.c_str(), n);
 	TRACE(3, "    %s\n", toString(1).c_str()); // toString displays the possible values
 
-	// How many untaken numbers are there?
-	int untakenNumbers[g_N];
-	int numUntaken = getUntakenNumbers(untakenNumbers);
-	TRACE(3, "%s(this=%s, n=%d) untakenNumbers=%s\n",
-		__CLASSFUNCTION__, m_name.c_str(), n, intListToString(numUntaken, untakenNumbers));
+	IntList* possibleValuesList = m_possibleValues.getList();
 
-	if (numUntaken < n) {
+	// How many possible values are there?
+	int numPossibleValues = possibleValuesList->size();
+	TRACE(3, "%s(this=%s, n=%d) possibleValues=%s\n",
+		__CLASSFUNCTION__, m_name.c_str(), n, possibleValuesList->toString());
+
+	if (numPossibleValues < n) {
 		return false;
 	}
 
 	Permutator permutator(g_N);
-	for (int i=0; i<numUntaken; i++) {
-		permutator.setValue(untakenNumbers[i]);
+	for (int i=0; i<numPossibleValues; i++) {
+		permutator.setValue(possibleValuesList->getValue(i));
 	}
 	permutator.setNumInPermutation(n);
 
-	bool anyChanges = false;
-	int* permutation;
-	while (permutation = permutator.getNextPermutation()) {
-		anyChanges |= checkForHiddenSubsets(n, permutation);
+	bool anyReductions = false;
+	int* nextPermutation;
+	while (nextPermutation = permutator.getNextPermutation()) {
+		IntList permutation(n, nextPermutation); // TBD: relationship between Permutator and IntList (g_N)
+
+		anyReductions |= checkForHiddenSubsets(permutation);
 	}
 
-	return anyChanges;
+	return anyReductions;
 }
 
 // For this row/col/box, are the cells in the locations list all in the same collection?
-bool CellSet::inSameRCB (CollectionType collection, int numLocations, int locations[]) {
+bool CellSet::inSameRCB (CollectionType collection, IntList& locations) {
 	TRACE(3, "%s(this=%s, collection=%s, locations=%s)\n",
-		__CLASSFUNCTION__, m_name.c_str(), collectionToString(collection), intListToString(numLocations, locations));
+		__CLASSFUNCTION__, m_name.c_str(), collectionToString(collection), locations.toString());
 
-	Cell* cell = m_cells[locations[0]];
+	Cell* cell = m_cells[locations.getValue(0)];
 	int rcb = cell->getRCB(collection);
 
-	for (int i=1; i<numLocations; i++) {
-		cell = m_cells[locations[i]];
+	for (int i=1; i<locations.getLength(); i++) {
+		cell = m_cells[locations.getValue(i)];
 
 		if (cell->getRCB(collection) != rcb) {
 			return false;
@@ -865,28 +953,29 @@ bool CellSet::lockedCandidateReduction (int candidate, int numCells, Cell* cells
 	return anyReductions;
 }
 
-bool CellSet::checkForLockedCandidate2 (int candidate, CollectionType collection, int numLocations, int locations[]) {
+bool CellSet::checkForLockedCandidate2 (int candidate, CollectionType collection, IntList& locations) {
 	TRACE(3, "%s(this=%s, candidate=%d, collection=%s, locations=%s)\n",
-		__CLASSFUNCTION__, m_name.c_str(), candidate+1, collectionToString(collection), intListToString(numLocations, locations));
+		__CLASSFUNCTION__, m_name.c_str(), candidate+1, collectionToString(collection), locations.toString());
 
-	if (!inSameRCB(collection, numLocations, locations)) {
+	if (!inSameRCB(collection, locations)) {
 		return false;
 	}
 
 	TRACE(2, "%s(this=%s, candidate=%d, collection=%s, locations=%s) same collection\n",
-		__CLASSFUNCTION__, m_name.c_str(), candidate+1, collectionToString(collection), intListToString(numLocations, locations));
+		__CLASSFUNCTION__, m_name.c_str(), candidate+1, collectionToString(collection), locations.toString());
 
 	// translate the "locations" to cells
 	Cell* cells[g_N];
-	for (int i=0; i<numLocations; i++) {
-		cells[i] = m_cells[locations[i]];
+	for (int i=0; i<locations.getLength(); i++) {
+		cells[i] = m_cells[locations.getValue(i)];
 	}
 
 	// Get the appropriate CellSet
 	CellSet* cellSet = cells[0]->getCellSet(collection);
 
 	// See if the CellSet can make any reductions
-	return cellSet->lockedCandidateReduction(candidate, numLocations, cells);
+// TBD: make "cells" a CellList
+	return cellSet->lockedCandidateReduction(candidate, locations.getLength(), cells);
 }
 
 // For this row/col/box, see if the candidate number is "locked"
@@ -894,16 +983,15 @@ bool CellSet::checkForLockedCandidate (int candidate) {
 	TRACE(3, "%s(this=%s, candidate=%d)\n", __CLASSFUNCTION__, m_name.c_str(), candidate+1);
 
 	// What are the locations for this candidate?
-	int locations[g_N];
-	int numLocations = getLocationsForCandidate(candidate, locations);
+	IntList locations = getLocationsForCandidate(candidate);
 
 	TRACE(3, "%s(this=%s, candidate=%d) locations=%s\n",
-		__CLASSFUNCTION__, m_name.c_str(), candidate+1, intListToString(numLocations, locations));
+		__CLASSFUNCTION__, m_name.c_str(), candidate+1, locations.toString());
 
 	// 0 = not found, so nothing to do
 	// 1 = naked single, it'll get picked up later
 	// >3, can't be in the same row/col/box
-	if ((numLocations < 2) || (numLocations > 3)) {
+	if ((locations.getLength() < 2) || (locations.getLength() > 3)) {
 		return false;
 	}
 
@@ -912,10 +1000,10 @@ bool CellSet::checkForLockedCandidate (int candidate) {
 	// If this is a box, then check to see if the locations are all in the same row or col.
 	// Otherwise, if it's a row or col, see if the locations are all in the same box
 	if (m_collection == BOX_COLLECTION) {
-		anyReductions |= checkForLockedCandidate2(candidate, ROW_COLLECTION, numLocations, locations);
-		anyReductions |= checkForLockedCandidate2(candidate, COL_COLLECTION, numLocations, locations);
+		anyReductions |= checkForLockedCandidate2(candidate, ROW_COLLECTION, locations);
+		anyReductions |= checkForLockedCandidate2(candidate, COL_COLLECTION, locations);
 	} else {
-		anyReductions |= checkForLockedCandidate2(candidate, BOX_COLLECTION, numLocations, locations);
+		anyReductions |= checkForLockedCandidate2(candidate, BOX_COLLECTION, locations);
 	}
 
 	return anyReductions;
@@ -970,31 +1058,31 @@ bool CellSet::validate (int level) {
 	return valid;
 }
 
-int CellSet::getLocationsForCandidate (int candidate, int locations[]) {
+IntList CellSet::getLocationsForCandidate (int candidate) {
 	TRACE(3, "%s(this=%s, candidate=%d)\n", __CLASSFUNCTION__, m_name.c_str(), candidate+1);
 
-	int count = 0;
+	IntList locations;
 
 	int location = 0;
 	ForEachInCellArray(m_cells, cell) {
-		if (cell->getPossible(candidate)) {
-			locations[count++] = location;
+		if (cell->isPossible(candidate)) {
+			locations.addValue(location);
 		}
 
 		location++;
 	}
 
-	return count;
+	return locations;
 }
 
-bool CellSet::checkForXWingReductions (int candidate, int numLocations, int locations[]) {
+bool CellSet::checkForXWingReductions (int candidate, IntList& locations) {
 	TRACE(3, "%s(this=%s, candidate=%d, locations=%s)\n",
-		__CLASSFUNCTION__, m_name.c_str(), candidate+1, intListToString(numLocations, locations));
+		__CLASSFUNCTION__, m_name.c_str(), candidate+1, locations.toString());
 
 	bool anyReductions = false;
 
-	for (int i=0; i<numLocations; i++) {
-		int location = locations[i];
+	for (int i=0; i<locations.getLength(); i++) {
+		int location = locations.getValue(i);
 
 		// If "candidate" is possible in location, then it can be eliminated!
 		Cell* cell = m_cells[location];
@@ -1002,7 +1090,7 @@ bool CellSet::checkForXWingReductions (int candidate, int numLocations, int loca
 		if (cell->tryToReduce(candidate)) {
 			TRACE(1, "%s(this=%s, candidate=%d, locations=%s) %s cannot be a %d\n",
 				__CLASSFUNCTION__, m_name.c_str(), candidate+1,
-				intListToString(numLocations, locations), cell->getName().c_str(), candidate+1);
+				locations.toString(), cell->getName().c_str(), candidate+1);
 			anyReductions = true;
 		}
 	}
@@ -1014,7 +1102,7 @@ bool CellSet::checkForXWingReductions (int candidate, int numLocations, int loca
 
 typedef struct {
 	CellSet*		m_cellSet;
-	int				m_locations[g_N];
+	IntList			m_locations;
 } XWingInfo;
 
 // X-Wing rule:
@@ -1029,17 +1117,17 @@ bool CellSetCollection::checkForXWings (int n, int candidate) {
 	XWingInfo xWingInfo[g_N];
 	int numCellSetsWithCandidateInNLocations = 0;
 	ForEachInCellSetArray(m_cellSets, cellSet) {
-		int locations[g_N];
-		int numLocations = cellSet->getLocationsForCandidate(candidate, locations);
+		IntList locations = cellSet->getLocationsForCandidate(candidate);
+
 		TRACE(3, "%s(this=%s, candidate=%d) trying %s: locations=%s\n",
 			__CLASSFUNCTION__, m_name.c_str(), candidate+1, cellSet->getName().c_str(),
-			intListToString(numLocations, locations));
+			locations.toString());
 
 		// If this CellSet has candidate in exactly "n" locations, then save that info
-		if (numLocations == n) {
+		if (locations.getLength() == n) {
 			XWingInfo* info = &xWingInfo[numCellSetsWithCandidateInNLocations++];
 			info->m_cellSet = cellSet;
-			memcpy(info->m_locations, locations, sizeof(locations));
+			info->m_locations = locations; // TBD: remove this "extra" copy!
 		}
 	}
 
@@ -1059,7 +1147,9 @@ bool CellSetCollection::checkForXWings (int n, int candidate) {
 		for (int j=i+1; j<numCellSetsWithCandidateInNLocations; j++) {
 			XWingInfo* info = &xWingInfo[j];
 
-			if (memcmp(infoToMatch->m_locations, info->m_locations, n * sizeof(info->m_locations[0])) == 0) {
+			if (infoToMatch->m_locations == info->m_locations) {
+
+			//if (memcmp(infoToMatch->m_locations, info->m_locations, n * sizeof(info->m_locations[0])) == 0) {
 				matchingCellSets[numMatches++] = info->m_cellSet;
 			}
 		}
@@ -1079,11 +1169,12 @@ bool CellSetCollection::checkForXWings (int n, int candidate) {
 					continue;
 				}
 
-				bool status = cellSet->checkForXWingReductions(candidate, n, infoToMatch->m_locations);
+				bool status = cellSet->checkForXWingReductions(candidate, infoToMatch->m_locations);
 				if (status) {
 					TRACE(2, "%s(this=%s, n=%d, candidate=%d) locations=%s\n",
 						__CLASSFUNCTION__, m_name.c_str(), n, candidate+1,
-						intListToString(n, infoToMatch->m_locations));
+						infoToMatch->m_locations.toString());
+
 					for (int i=0; i<n; i++) {
 						CellSet* cs = matchingCellSets[i];
 						TRACE(2, "    %s\n", cs->getName().c_str());
@@ -1135,26 +1226,26 @@ bool CellSetCollection::checkForNakedSubsets (int n) {
 	TRACE(3, "%s(this=%s, n=%d)\n",
 		__CLASSFUNCTION__, m_name.c_str(), n);
 
-	bool anyChanges = false;
+	bool anyReductions = false;
 
 	ForEachInCellSetArray(m_cellSets, cellSet) {
-		anyChanges |= cellSet->checkForNakedSubsets(n);
+		anyReductions |= cellSet->checkForNakedSubsets(n);
 	}
 
-	return anyChanges;
+	return anyReductions;
 }
 
 bool CellSetCollection::checkForHiddenSubsets (int n) {
 	TRACE(3, "%s(this=%s, n=%d)\n",
 		__CLASSFUNCTION__, m_name.c_str(), n);
 
-	bool anyChanges = false;
+	bool anyReductions = false;
 
 	ForEachInCellSetArray(m_cellSets, cellSet) {
-		anyChanges |= cellSet->checkForHiddenSubsets(n);
+		anyReductions |= cellSet->checkForHiddenSubsets(n);
 	}
 
-	return anyChanges;
+	return anyReductions;
 }
 
 bool CellSetCollection::validate (int level) {
@@ -1174,13 +1265,13 @@ bool CellSetCollection::validate (int level) {
 bool AllCells::checkForYWings () {
 	TRACE(3, "%s()\n", __CLASSFUNCTION__);
 
-	bool anyChanges = false;
+	bool anyReductions = false;
 
 	for (int i=0; i<ArraySize(m_cells)-2; i++) {
-		anyChanges |= m_cells[i]->checkForYWings();
+		anyReductions |= m_cells[i]->checkForYWings();
 	}
 
-	return anyChanges;
+	return anyReductions;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1302,50 +1393,50 @@ void SudokuSolver::reset () {
 bool SudokuSolver::checkForNakedSubsets (int n) {
 	TRACE(3, "%s(n=%d)\n", __CLASSFUNCTION__, n);
 
-	bool anyChanges = false;
+	bool anyReductions = false;
 
 	ForEachInCellSetCollectionArray(m_cellSetCollections, cellSetCollection) {
-		anyChanges |= cellSetCollection->checkForNakedSubsets(n);
+		anyReductions |= cellSetCollection->checkForNakedSubsets(n);
 	}
 
-	return anyChanges;
+	return anyReductions;
 }
 
 bool SudokuSolver::checkForHiddenSubsets (int n) {
 	TRACE(3, "%s(n=%d)\n", __CLASSFUNCTION__, n);
 
-	bool anyChanges = false;
+	bool anyReductions = false;
 
 	ForEachInCellSetCollectionArray(m_cellSetCollections, cellSetCollection) {
-		anyChanges |= cellSetCollection->checkForHiddenSubsets(n);
+		anyReductions |= cellSetCollection->checkForHiddenSubsets(n);
 	}
 
-	return anyChanges;
+	return anyReductions;
 }
 
 bool SudokuSolver::checkForLockedCandidates () {
 	TRACE(3, "%s()\n", __CLASSFUNCTION__);
 
-	bool anyChanges = false;
+	bool anyReductions = false;
 
 	ForEachInCellSetCollectionArray(m_cellSetCollections, cellSetCollection) {
-		anyChanges |= cellSetCollection->checkForLockedCandidates();
+		anyReductions |= cellSetCollection->checkForLockedCandidates();
 	}
 
-	return anyChanges;
+	return anyReductions;
 }
 
 bool SudokuSolver::checkForXWings (int n) {
 	TRACE(3, "%s(n=%d)\n", __CLASSFUNCTION__, n);
 
-	bool anyChanges = false;
+	bool anyReductions = false;
 
 	for (int candidate=0; candidate<g_N; candidate++) {
-		anyChanges |= m_allRows.checkForXWings(n, candidate);
-		anyChanges |= m_allCols.checkForXWings(n, candidate);
+		anyReductions |= m_allRows.checkForXWings(n, candidate);
+		anyReductions |= m_allCols.checkForXWings(n, candidate);
 	}
 
-	return anyChanges;
+	return anyReductions;
 }
 
 bool SudokuSolver::checkForYWings () {
@@ -1371,7 +1462,7 @@ int CellSet::getNumPossible (int candidate) {
 	int numPossible = 0;
 
 	ForEachInCellArray(m_cells, cell) {
-		if (cell->getPossible(candidate)) {
+		if (cell->isPossible(candidate)) {
 			numPossible++;
 		}
 	}
@@ -1408,7 +1499,7 @@ bool Cell::buildChains (int candidate, ChainStatusType chainStatus, Cell* linkin
 	}
 
 	// If this cell does not have candidate for a possible value, then bail
-	if (!getPossible(candidate)) {
+	if (!isPossible(candidate)) {
 		return false;
 	}
 
@@ -1500,7 +1591,7 @@ bool SudokuSolver::singlesChainsReduction (int candidate, ChainStatusType chainS
 	TRACE(2, "%s(candidate=%d, chainStatus=%s)\n",
 		__CLASSFUNCTION__, candidate+1, chainStatusToString(chainStatus));
 
-	bool anyChanges = false;
+	bool anyReductions = false;
 
 	for (int row=0; row<g_N; row++) {
 		for (int col=0; col<g_N; col++) {
@@ -1514,12 +1605,12 @@ bool SudokuSolver::singlesChainsReduction (int candidate, ChainStatusType chainS
 				TRACE(1, "%s(candidate=%d, chainStatus=%s) %s cannot be a %d\n",
 					__CLASSFUNCTION__, candidate+1, chainStatusToString(chainStatus), cell->getName().c_str(), candidate+1);
 
-				anyChanges = true;
+				anyReductions = true;
 			}
 		}
 	}
 
-	return anyChanges;
+	return anyReductions;
 }
 
 // How many cells in this CellSet have the specified chainStatus?
@@ -1570,7 +1661,7 @@ bool SudokuSolver::checkForSinglesChainsReductions_SameColor (int candidate, Cha
 bool SudokuSolver::checkForSinglesChainsReductions_DifferentColors (int candidate) {
 	TRACE(3, "%s(candidate=%d)\n", __CLASSFUNCTION__, candidate+1);
 
-	bool anyChanges = false;
+	bool anyReductions = false;
 
 	for (int row=0; row<g_N; row++) {
 		for (int col=0; col<g_N; col++) {
@@ -1586,13 +1677,13 @@ bool SudokuSolver::checkForSinglesChainsReductions_DifferentColors (int candidat
 					TRACE(1, "%s(candidate=%d) %s cannot be a %d\n",
 						__CLASSFUNCTION__, candidate+1, cell->getName().c_str(), candidate+1);
 
-					anyChanges = true;
+					anyReductions = true;
 				}
 			}
 		}
 	}
 
-	return anyChanges;
+	return anyReductions;
 }
 
 bool SudokuSolver::checkForSinglesChains (int candidate) {
@@ -1600,7 +1691,7 @@ bool SudokuSolver::checkForSinglesChains (int candidate) {
 
 	m_allCells.resetChains();
 
-	bool anyChanges = false;
+	bool anyReductions = false;
 
 	for (int row=0; row<g_N; row++) {
 		for (int col=0; col<g_N; col++) {
@@ -1620,7 +1711,7 @@ bool SudokuSolver::checkForSinglesChains (int candidate) {
 
 				if (status) {
 					printColors();
-					anyChanges = true;
+					anyReductions = true;
 				}
 
 				m_allCells.resetChains();
@@ -1628,73 +1719,126 @@ bool SudokuSolver::checkForSinglesChains (int candidate) {
 		}
 	}
 
-	return anyChanges;
+	return anyReductions;
 }
 
 bool SudokuSolver::checkForSinglesChains () {
 	TRACE(3, "%s()\n", __CLASSFUNCTION__);
 
-	bool anyChanges = false;
+	bool anyReductions = false;
 
 	for (int candidate=0; candidate<g_N; candidate++) {
-		anyChanges |= checkForSinglesChains(candidate);
+		anyReductions |= checkForSinglesChains(candidate);
 	}
 
-	return anyChanges;
+	return anyReductions;
+}
+
+bool Cell::checkForXYZWings (Cell* secondCell) {
+	TRACE(3, "%s(this=%s, secondCell=%s)\n", __CLASSFUNCTION__, m_name.c_str(), secondCell->getName().c_str());
+
+	Cell* firstCell = this;
+
+	IntList* firstCellPossibleValues = firstCell->getPossibleValuesList();
+	IntList* secondCellPossibleValues = secondCell->getPossibleValuesList();
+
+	if (secondCellPossibleValues->getLength() != 2) {
+		return false;
+	}
+
+TRACE(1, "%s(this=%s) %s has 2 possible values: %s\n", __CLASSFUNCTION__, m_name.c_str(),
+secondCell->getName().c_str(), secondCellPossibleValues->toString());
+
+	// Make sure the two values of the second cell match two of the three values of the first cell
+	IntList intersection12 = IntList::findIntersection(*firstCellPossibleValues, *secondCellPossibleValues);
+	if (intersection12.getLength() != 2) {
+		return false;
+	}
+
+	bool anyReductions = false;
+
+	// Try to find a third cell that:
+	// 1) is visible by the firstCell,
+	// 2) not by the secondCell,
+	// 3) has two possible values, both in common with firstCell and one in common with secondCell
+	ForEachInCellSetArray(m_cellSets, cellSet) {
+		ForEachInCellArray(cellSet->m_cells, thirdCell) {
+			if ((thirdCell == firstCell) || (thirdCell == secondCell)) {
+				continue;
+			}
+TRACE(1, "  checking thirdCell=%s\n", thirdCell->getName().c_str());
+
+			// Make sure secondCell can't see thirdCell
+			if (secondCell->hasNeighbor(thirdCell)) {
+TRACE(1, "    Bummer! thirdCell is a neighbor of secondCell!\n");
+				continue;
+			}
+
+			IntList* thirdCellPossibleValues = thirdCell->getPossibleValuesList();
+			if (thirdCellPossibleValues->getLength() != 2) {
+TRACE(1, "    Bummer! numThirdCellPossibleValues != 2\n");
+				continue;
+			}
+
+			// Make sure the two values of the third cell match two of the three values of the first cell
+			IntList intersection13 = IntList::findIntersection(*firstCellPossibleValues, *thirdCellPossibleValues);
+			if (intersection13.getLength() != 2) {
+TRACE(1, "    Bummer! thirdCell possible values don't overlap with firstCell\n");
+				continue;
+			}
+
+			// intersection12 and interesection13 CAN'T be the same
+			IntList intersection12_13 = IntList::findIntersection(intersection12, intersection13);
+			if (intersection12_13.getLength() != 1) {
+TRACE(1, "    Bummer! thirdCell and secondCell possible values don't overlap appropriately\n");
+				continue;
+			}
+				
+		}
+	}
+
+	return anyReductions;
+
 }
 
 bool Cell::checkForXYZWings () {
 	TRACE(3, "%s(this=%s)\n", __CLASSFUNCTION__, m_name.c_str());
 
-	Cell* firstCell = this;
+	IntList* possibleValuesList = m_possibleValues.getList();
 
-	int firstCellPossibleValues[g_N];
-	int numFirstCellPossibleValues = firstCell->getPossibleValues(firstCellPossibleValues);
-	if (numFirstCellPossibleValues != 3) {
+	// Make sure this cell has 3 possible values
+	if (possibleValuesList->size() != 3) {
 		return false;
 	}
 
-TRACE(1, "%s(this=%s) has 3 possible values: %s\n", __CLASSFUNCTION__, m_name.c_str(), intListToString(numFirstCellPossibleValues, firstCellPossibleValues));
+	TRACE(3, "%s(this=%s) has 3 possible values: %s\n",
+		__CLASSFUNCTION__, m_name.c_str(), possibleValuesList->toString());
+
+	bool anyReductions = false;
 
 	ForEachInCellSetArray(m_cellSets, cellSet) {
 		ForEachInCellArray(cellSet->m_cells, secondCell) {
-		//for (int location=0; location<g_N; location++) {
-			//Cell* secondCell = cellSet->getCell(location);
-
-			int secondCellPossibleValues[g_N];
-    		int numSecondCellPossibleValues = secondCell->getPossibleValues(secondCellPossibleValues);
-    		if (numSecondCellPossibleValues != 2) {
-				continue;
-    		}
-
-TRACE(1, "%s(this=%s) %s has 2 possible values: %s\n", __CLASSFUNCTION__, m_name.c_str(),
-secondCell->getName().c_str(), intListToString(numSecondCellPossibleValues, secondCellPossibleValues));
-
-			// Make sure the two values of the second cell match two of the three values of the first cell
-			if (!isValueOnList(secondCellPossibleValues[0], numFirstCellPossibleValues, firstCellPossibleValues) ||
-				!isValueOnList(secondCellPossibleValues[1], numFirstCellPossibleValues, firstCellPossibleValues)) {
+			if (secondCell == this) {
 				continue;
 			}
 
-TRACE(1, "    so far, so good!\n");
-
-
+			anyReductions |= checkForXYZWings(secondCell);
 		}
 	}
 
-	return false;
+	return anyReductions;
 }
 
 bool AllCells::checkForXYZWings () {
 	TRACE(3, "%s()\n", __CLASSFUNCTION__);
 
-	bool anyChanges = false;
+	bool anyReductions = false;
 
 	ForEachInCellArray(m_cells, cell) {
-		anyChanges |= cell->checkForXYZWings();
+		anyReductions |= cell->checkForXYZWings();
 	}
 
-	return anyChanges;
+	return anyReductions;
 }
 
 bool SudokuSolver::checkForXYZWings () {
