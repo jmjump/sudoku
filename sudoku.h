@@ -31,16 +31,16 @@ typedef enum {
 	ALG_CHECK_FOR_NAKED_SINGLES,
 	ALG_CHECK_FOR_HIDDEN_SINGLES,
 	ALG_CHECK_FOR_NAKED_PAIRS,
-	ALG_CHECK_FOR_HIDDEN_PAIRS,
-	ALG_CHECK_FOR_LOCKED_CANDIDATES,
 	ALG_CHECK_FOR_NAKED_TRIPLES,
+	ALG_CHECK_FOR_HIDDEN_PAIRS,
 	ALG_CHECK_FOR_HIDDEN_TRIPLES,
+	ALG_CHECK_FOR_NAKED_QUADS,
+	ALG_CHECK_FOR_HIDDEN_QUADS,
+	ALG_CHECK_FOR_LOCKED_CANDIDATES,
 	ALG_CHECK_FOR_XWINGS,
 	ALG_CHECK_FOR_YWINGS,
 	ALG_CHECK_FOR_SINGLES_CHAINS,
 	ALG_CHECK_FOR_SWORDFISH,
-	ALG_CHECK_FOR_NAKED_QUADS,
-	ALG_CHECK_FOR_HIDDEN_QUADS,
 	ALG_CHECK_FOR_XYZ_WINGS,
 
 	NUM_ALGORITHMS
@@ -86,7 +86,20 @@ class IntList : public IntVector {
 		static IntList					findIntersection (IntList& listA, IntList& listB);
 };
 
-extern const char* toString (IntList&);
+////////////////////////////////////////////////////////////////////////////////
+
+class CellList : public CellVector {
+	public:
+		void							addValue (Cell*);
+		Cell*							getValue (int i);
+		int								getLength ();
+
+		const char*						toString ();
+
+		bool							onList (Cell* cell);
+};
+
+////////////////////////////////////////////////////////////////////////////////
 
 class PossibleValues {
 	public:
@@ -135,21 +148,21 @@ class Cell {
 		bool							hasNeighbor (Cell* otherCell);
 		bool							haveExactPossibles (Cell* otherCell);
 		void							processNakedSingle ();
-		int								getPossibleValues (int possibles[]=NULL);
 		IntList*						getPossibleValuesList () { return m_possibleValues.getList(); }
 		bool							haveSamePossibles (Cell* otherCell);
 		bool							haveAnyOverlappingPossibles (Cell* otherCell);
 		bool							checkForNakedReductions (Cell* nakedCell);
 		bool							areAnyOfTheseValuesPossible (IntList&);
 		bool							hiddenSubsetReduction (IntList&);
-		bool							hiddenSubsetReduction2 (Cell* candidateCells[], IntList&);
+		bool							hiddenSubsetReduction2 (CellList& candidateCells, IntList&);
 		bool							checkForYWings ();
-		bool							checkForYWings (Cell* secondCell);
+		bool							checkForYWings (Cell* cell2);
 		bool							checkForYWingReductions (int c, Cell* otherCell);
 		bool							checkForXYZWings ();
-		bool							checkForXYZWings (Cell* secondCell);
+		bool							checkForXYZWings (Cell* cell2);
+		bool							checkForXYZReductions (int candidate, Cell* cell2, Cell* cell3);
 
-		bool							tryToReduce (int c);
+		bool							tryToReduce (int c, AlgorithmType=NUM_ALGORITHMS);
 
 										// Get the row/col/box
 		int								getRCB (int rcb) {
@@ -224,22 +237,22 @@ class CellSet {
 		bool							checkForLockedCandidate (int c);
 		bool							checkForLockedCandidate2 (int candidate, CollectionType collection, IntList& locations);
 		bool							inSameRCB (CollectionType collection, IntList& locations);
-		bool							lockedCandidateReduction (int candidate, int numCells, Cell* cells[]);
-		int								findMatchingCells (Cell* cellToMatch, Cell* matchingCells[]);
+		bool							lockedCandidateReduction (int candidate, CellList& cellList);
+		CellList						findCellsWithSamePossibleValues (Cell* cellToMatch);
 		bool							checkForXWingReductions (int candidate, IntList& locations);
 
-		bool							tryToReduce (int N, Cell* matchingCells[]);
+		bool							tryToReduce (CellList& matchingCellsList);
 
 		bool							runAlgorithm (AlgorithmType algorithm);
 		bool							checkForNakedSubsets (int n);
 		bool							checkForHiddenSubsets (int n);
 		bool							checkForHiddenSubsets (IntList& permutation);
 		bool							hiddenSubsetReduction (IntList& permutation);
-		bool							hiddenSubsetReduction2 (Cell* candidateCells[], IntList& permutation);
+		bool							hiddenSubsetReduction2 (CellList& candidateCells, IntList& permutation);
 		IntList							getLocationsForCandidate (int candidate);
 
 		bool							hasCandidateCell (Cell* candidateCell);
-		bool							hasAllCandidateCells (int n, Cell* candidateCells[]);
+		bool							hasAllCandidateCells (CellList& candidateCells);
 
 		bool							validate (int level=0);
 

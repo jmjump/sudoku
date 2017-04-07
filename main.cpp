@@ -65,14 +65,19 @@ struct TestCase {
 	const char*				m_gameFilename;
 	const char*				m_solutionFilename;
 } g_testCases [] = {
-	"naked singles", "naked-singles.txt", "naked-singles.solution.txt",
-	"hidden singles", "hidden-singles.txt", "hidden-singles.solution.txt",
+	"naked singles", "nakedSingles.txt", "nakedSingles.solution.txt",
+	"hidden singles", "hiddenSingles.txt", "hiddenSingles.solution.txt",
+	"naked pairs", "nakedPairs.txt", "nakedPairs.solution.txt",
+	"hidden pairs", "hiddenPairs.txt", "hiddenPairs.solution.txt",
+	"naked triples", "nakedTriples.txt", "nakedTriples.solution.txt",
+	"hidden triples", "hiddenTriples.txt", "hiddenTriples.solution.txt",
 	"locked candidates (pointing)", "lockedCandidates-pointing.txt", "lockedCandidates-pointing.solution.txt",
 	"locked candidates (claiming)", "lockedCandidates-claiming.txt", "lockedCandidates-claiming.solution.txt",
 	"X-wings", "xwing-row.txt", "xwing-row.solution.txt",
 	"singles chain", "singlesChain1.txt", "singlesChain1.solution.txt",
 	"Y-wings", "ywing.txt", "ywing.solution.txt",
-	"swordfish", "swordfish.txt", "swordfish.solution.txt"
+	"swordfish", "swordfish.txt", "swordfish.solution.txt",
+	"XYZ-wings", "xyz-wing.txt", "xyz-wing.solution.txt",
 };
 
 static void testSolver () {
@@ -83,18 +88,21 @@ static void testSolver () {
 		const char* gameFilename = testCase->m_gameFilename;
 		const char* solutionFilename = testCase->m_solutionFilename;
 
-		TRACE(0, "TestCase: %s\n", testDescription);
+		TRACE(0, "Test case: %s\n", testDescription);
+		TRACE(0, "    loading file(%s)\n", gameFilename);
 
 		int status;
 		if ((status = g_solver->loadGameFile(gameFilename)) < 0) {
 			TRACE(0, "error: unable to load '%s'\n", gameFilename);
 		} else {
+			TRACE(0, "    running solver\n");
 			g_solver->solve();
 
+			TRACE(0, "    checking solution(%s)\n", solutionFilename);
 			status = g_solver->checkGameFile(solutionFilename);
 		}
 
-		TRACE(0, "TestCase: %s(%s) %s\n", testDescription, gameFilename, (status == 0 ? "PASSED" : "FAILED"));
+		TRACE(0, "    %s %s\n", testDescription, (status == 0 ? "PASSED" : "FAILED"));
 
 		if (status < 0) {
 			exit(0);
@@ -114,7 +122,7 @@ static void processGame (CLI* cli) {
 }
 
 static void processPrint (CLI* cli) {
-	int level = cli->getIntParameter(false, 0);
+	int level = cli->getIntParameter(false, 1);
 
 	g_solver->print(level);
 }
@@ -152,6 +160,10 @@ static void processValidate (CLI* cli) {
 	g_solver->validate(1);
 }
 
+static void processTest (CLI* cli) {
+	testSolver();
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 int main (int argc, char* argv[]) {
@@ -176,7 +188,7 @@ int main (int argc, char* argv[]) {
     }
 
 	if (runUnitTests) {
-		testPermutator();
+		//testPermutator(); // TBD: make this a real test!
 	}
 
 	g_solver = new SudokuSolver();
@@ -203,6 +215,7 @@ int main (int argc, char* argv[]) {
 	cli.addCommand("run", processRun, "run the solver to completion");
 	cli.addCommand("alg", processAlgorithm, "[<alg>] : run the specified algorithm");
 	cli.addCommand("validate", processValidate, "validate the puzzle");
+	cli.addCommand("test", processTest, "run unit tests");
 
 	cli.processInput(stdin);
 }
