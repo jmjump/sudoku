@@ -84,6 +84,7 @@ class IntList : public IntVector {
 		const char*						toString ();
 
 		static IntList					findIntersection (IntList& listA, IntList& listB);
+		void							findUnion (IntList& otherList);
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -147,11 +148,10 @@ class Cell {
 
 		bool							hasNeighbor (Cell* otherCell);
 		bool							haveExactPossibles (Cell* otherCell);
-		void							processNakedSingle ();
+		bool							processNakedSingle ();
 		IntList*						getPossibleValuesList () { return m_possibleValues.getList(); }
 		bool							haveSamePossibles (Cell* otherCell);
 		bool							haveAnyOverlappingPossibles (Cell* otherCell);
-		bool							checkForNakedReductions (Cell* nakedCell);
 		bool							areAnyOfTheseValuesPossible (IntList&);
 		bool							hiddenSubsetReduction (IntList&);
 		bool							hiddenSubsetReduction2 (CellList& candidateCells, IntList&);
@@ -162,7 +162,8 @@ class Cell {
 		bool							checkForXYZWings (Cell* cell2);
 		bool							checkForXYZReductions (int candidate, Cell* cell2, Cell* cell3);
 
-		bool							tryToReduce (int c, AlgorithmType=NUM_ALGORITHMS);
+		bool							tryToReduce (IntList& values, AlgorithmType=NUM_ALGORITHMS);
+		bool							tryToReduce (int candidate, AlgorithmType=NUM_ALGORITHMS);
 
 										// Get the row/col/box
 		int								getRCB (int rcb) {
@@ -241,10 +242,9 @@ class CellSet {
 		CellList						findCellsWithSamePossibleValues (Cell* cellToMatch);
 		bool							checkForXWingReductions (int candidate, IntList& locations);
 
-		bool							tryToReduce (CellList& matchingCellsList);
-
 		bool							runAlgorithm (AlgorithmType algorithm);
 		bool							checkForNakedSubsets (int n);
+		bool							nakedSubsetReduction (CellList& cellList, IntList& values);
 		bool							checkForHiddenSubsets (int n);
 		bool							checkForHiddenSubsets (IntList& permutation);
 		bool							hiddenSubsetReduction (IntList& permutation);

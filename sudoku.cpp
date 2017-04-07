@@ -142,7 +142,7 @@ const char* IntList::toString () {
 }
 
 bool IntList::onList (int value) {
-	for (int i=0; i<size(); i++) {
+	for (int i=0; i<getLength(); i++) {
 		if (getValue(i) == value) {
 			return true;
 		}
@@ -154,14 +154,23 @@ bool IntList::onList (int value) {
 IntList IntList::findIntersection (IntList& listA, IntList& listB) {
 	IntList intersection;
 
-	for (int i=0; i<listA.size(); i++) {
-		int value = listA[i];
+	for (int i=0; i<listA.getLength(); i++) {
+		int value = listA.getValue(i);
 		if (listB.onList(value)) {
-			intersection.push_back(value);
+			intersection.addValue(value);
 		}
 	}
 
 	return intersection;
+}
+
+void IntList::findUnion (IntList& otherList) {
+	for (int i=0; i<otherList.getLength(); i++) {
+		int value = otherList.getValue(i);
+		if (!onList(value)) {
+			addValue(value);
+		}
+	}
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -312,22 +321,6 @@ bool Cell::haveSamePossibles (Cell* otherCell) {
 	return true;
 }
 
-// does the otherCell have exactly the same possible values as this cell
-bool Cell::haveExactPossibles (Cell* otherCell) {
-	TRACE(3, "%s(this=%s, otherCell=%s)\n",
-		__CLASSFUNCTION__, m_name.c_str(), otherCell->getName().c_str());
-
-	for (int i=0; i<g_N; i++) {
-		if (otherCell->isPossible(i) != isPossible(i)) {
-			TRACE(3, "%s(this=%s, otherCell=%s) position %d is different\n",
-				__CLASSFUNCTION__, m_name.c_str(), otherCell->getName().c_str(), i+1);
-
-			return false;
-		}
-	}
-
-	return true;
-}
 bool Cell::haveAnyOverlappingPossibles (Cell* otherCell) {
 	TRACE(3, "%s(this=%s, otherCell=%s)\n",
 		__CLASSFUNCTION__, m_name.c_str(), otherCell->getName().c_str());
@@ -342,6 +335,21 @@ bool Cell::haveAnyOverlappingPossibles (Cell* otherCell) {
 	}
 
 	return false;
+}
+
+bool Cell::tryToReduce (IntList& values, AlgorithmType algorithm) {
+	TRACE(4, "%s(this=%s, values=%s)\n",
+		__CLASSFUNCTION__, m_name.c_str(), values.toString());
+
+	bool anyReductions = false;
+
+	for (int i=0; i<values.getLength(); i++) {
+		int value = values.getValue(i);
+
+		anyReductions |= tryToReduce(value, algorithm);
+	}
+
+	return anyReductions;
 }
 
 bool Cell::tryToReduce (int value, AlgorithmType algorithm) {
@@ -362,53 +370,41 @@ bool Cell::tryToReduce (int value, AlgorithmType algorithm) {
 }
 
 // We *think* this is a naked single. Make sure!
-void Cell::processNakedSingle () {
+bool Cell::processNakedSingle () {
 	TRACE(3, "%s(this=%s)\n",
 		__CLASSFUNCTION__, m_name.c_str());
 
 	if (m_possibleValues.getKnown()) {
 		TRACE(0, "    ERROR! value already known (%d)\n", m_possibleValues.getValue()+1);
-	} else {
-		int onlyValue = -1;
+		return false;
+	}
 
-		for (int i=0; i<g_N; i++) {
-			TRACE(3, "    %d: %s BE\n", i+1, isPossible(i) ? "CAN" : "CAN'T");
+	int onlyValue = -1;
 
-			if (isPossible(i)) {
-				if (onlyValue != -1) {
-					TRACE(0, "    ERROR! not a naked single (%d and %d)\n", onlyValue+1, i+1);
-					return;
-				} else {
-					onlyValue = i;
-				}
+	for (int i=0; i<g_N; i++) {
+		TRACE(3, "    %d: %s BE\n", i+1, isPossible(i) ? "CAN" : "CAN'T");
+
+		if (isPossible(i)) {
+			if (onlyValue != -1) {
+				TRACE(0, "    ERROR! not a naked single (%d and %d)\n", onlyValue+1, i+1);
+				return false;
 			}
-		}
 
-		if (onlyValue == -1) {
-			TRACE(0, "    ERROR! not a naked single (no possible values remain)\n");
-		} else {
-			TRACE(1, "%s must be a %d (%s)\n",
-				m_name.c_str(), onlyValue+1, algorithmToString(ALG_CHECK_FOR_NAKED_SINGLES));
-
-			setValue(onlyValue);
-		}
-	}
-}
-
-bool Cell::checkForNakedReductions (Cell* nakedCell) {
-	TRACE(3, "%s(this=%s, nakedCell=%s)\n",
-		__CLASSFUNCTION__, m_name.c_str(), nakedCell->getName().c_str());
-
-	bool anyReductions = false;
-
-	// Any "possible" values in the nakedCall are no longer possible in this cell
-	for (int value=0; value<g_N; value++) {
-		if (nakedCell->isPossible(value)) {
-			anyReductions |= tryToReduce(value, g_currentAlgorithm);
+			onlyValue = i;
 		}
 	}
 
-	return anyReductions;
+	if (onlyValue == -1) {
+		TRACE(0, "    ERROR! not a naked single (no possible values remain)\n");
+		return false;
+	}
+
+	TRACE(1, "%s must be a %d (%s)\n",
+		m_name.c_str(), onlyValue+1, algorithmToString(ALG_CHECK_FOR_NAKED_SINGLES));
+
+	setValue(onlyValue);
+
+	return true;
 }
 
 bool Cell::areAnyOfTheseValuesPossible (IntList& values) {
@@ -693,25 +689,10 @@ void CellSet::setNoLongerPossible (int value) {
 	}
 }
 
-// Make a list of all the cells in this CellSet that have the same "possible" values as "cellToMatch"
-CellList CellSet::findCellsWithSamePossibleValues (Cell* cellToMatch) {
-	CellList cellList;
+bool CellSet::nakedSubsetReduction (CellList& cellList, IntList& values) {
+	TRACE(3, "%s(this=%s, cellList=%s, values=%s)\n",
+		__CLASSFUNCTION__, m_name.c_str(), cellList.toString(), values.toString());
 
-	ForEachInCellArray(m_cells, cell) {
-		if (cell->getKnown()) {
-			continue;
-		}
-
-		// Does this cell have *exactly* the same possible values as cellToMatch?
-		if (cell->haveExactPossibles(cellToMatch)) {
-			cellList.addValue(cell);
-		}
-	}
-
-	return cellList;
-}
-
-bool CellSet::tryToReduce (CellList& matchingCellsList) {
 	bool anyReductions = false;
 
 	ForEachInCellArray(m_cells, cell) {
@@ -720,13 +701,11 @@ bool CellSet::tryToReduce (CellList& matchingCellsList) {
 		}
 
 		// Is this cell on the list of matching cells?
-		if (matchingCellsList.onList(cell)) {
+		if (cellList.onList(cell)) {
 			continue;
 		}
 
-		// cell is not on the list, therefore we can check for reductions!
-		Cell* nakedCell = matchingCellsList.getValue(0); // all cells on the list should have the same naked values!
-		anyReductions |= cell->checkForNakedReductions(nakedCell);
+		anyReductions |= cell->tryToReduce(values, g_currentAlgorithm);
 	}
 
 	return anyReductions;
@@ -735,28 +714,57 @@ bool CellSet::tryToReduce (CellList& matchingCellsList) {
 bool CellSet::checkForNakedSubsets (int n) {
 	TRACE(3, "%s(this=%s, n=%d)\n", __CLASSFUNCTION__, m_name.c_str(), n);
 
-	bool anyReductions = false;
+	// Make a list of the candidate cells:
+	// 1) not known,
+	// 2) <= n possible values
+	Permutator permutator(g_N);
+	for (int location=0; location<g_N; location++) {
+		Cell* cell = m_cells[location];
 
-	ForEachInCellArray(m_cells, cell) {
-		// If the cell is already filled in, don't bother!
 		if (cell->getKnown()) {
 			continue;
 		}
 
-		// How many possibilities for this cell?
 		IntList* possibleValuesList = cell->getPossibleValuesList();
-		if (possibleValuesList->getLength() == n) {
-			TRACE(3, "    %s has %d possible value(s)\n", cell->getName().c_str(), n);
+		if (possibleValuesList->getLength() > n) {
+			continue;
+		}
 
-			// Short circuit! For n=1, we have a winner!
+		permutator.setValue(location);
+	}
+	permutator.setNumInPermutation(n);
+
+	// Make sure we have enough
+	if (permutator.getNumValues() < n) {
+		return false;
+	}
+
+	bool anyReductions = false;
+	int* nextPermutation;
+	while (nextPermutation = permutator.getNextPermutation()) {
+		// Build a CellList from the permutation
+		CellList cellList;
+
+		// Keep track of the union of the possible values from the "n" cells
+		IntList possibleValuesUnion;
+
+		for (int i=0; i<n; i++) {
+			int location = nextPermutation[i];
+			Cell* cell = m_cells[location];
+			cellList.addValue(cell);
+
+			IntList* possibleValues = cell->getPossibleValuesList();
+
+			possibleValuesUnion.findUnion(*possibleValues);
+		}
+
+		if (possibleValuesUnion.getLength() == n) {
+			// Special case for n==1 (hint: naked single)
 			if (n == 1) {
-				cell->processNakedSingle();
-				anyReductions = true;
+				Cell* cell = cellList.getValue(0);
+				anyReductions |= cell->processNakedSingle();
 			} else {
-				CellList matchingCellsList = findCellsWithSamePossibleValues(cell);
-				if (matchingCellsList.getLength() == n) {
-					anyReductions |= tryToReduce(matchingCellsList);
-				}
+				anyReductions |= nakedSubsetReduction(cellList, possibleValuesUnion);
 			}
 		}
 	}

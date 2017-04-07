@@ -71,6 +71,7 @@ struct TestCase {
 	"hidden pairs", "hiddenPairs.txt", "hiddenPairs.solution.txt",
 	"naked triples", "nakedTriples.txt", "nakedTriples.solution.txt",
 	"hidden triples", "hiddenTriples.txt", "hiddenTriples.solution.txt",
+	"naked quads", "nakedQuads.txt", "nakedQuads.solution.txt",
 	"locked candidates (pointing)", "lockedCandidates-pointing.txt", "lockedCandidates-pointing.solution.txt",
 	"locked candidates (claiming)", "lockedCandidates-claiming.txt", "lockedCandidates-claiming.solution.txt",
 	"X-wings", "xwing-row.txt", "xwing-row.solution.txt",

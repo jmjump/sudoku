@@ -28,6 +28,10 @@ class Permutator {
 			m_values[m_numValues++] = value;
 		}
 
+		int getNumValues () {
+			return m_numValues;
+		}
+
 		void setNumInPermutation (int n) {
 			m_numInPermutation = n;
 
