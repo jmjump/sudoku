@@ -131,7 +131,7 @@ const char* IntList::toString () {
 	char* p = buffer;
 
 	p += sprintf(p, "[");
-	char* separator = "";
+	const char* separator = "";
 	for (int i=0; i<size(); i++) {
 		p += sprintf(p, "%s%d", separator, getValue(i)+1);
 		separator = ",";
@@ -202,7 +202,7 @@ const char* CellList::toString () {
 	char* p = buffer;
 
 	p += sprintf(p, "[");
-	char* separator = "";
+	const char* separator = "";
 	for (int i=0; i<getLength(); i++) {
 		Cell* cell = getValue(i);
 		p += sprintf(p, "%s%s", separator, cell->getName().c_str());
@@ -572,7 +572,7 @@ TRACE(2, "%s(this=%s) cell1=%s has 2 possible values=%s\n",
 __CLASSFUNCTION__, m_name.c_str(), cell1->getName().c_str(),
 cell1PossibleValues->toString());
 
-TRACE(2, "%s(this=%s) cell2=%s has 2 possible values=%s (a=%d,b=%d,c=%d)\n",
+TRACE(2, "%s(this=%s) cell2=%s has 2 possible values=%s\n",
 __CLASSFUNCTION__, m_name.c_str(), cell2->getName().c_str(),
 cell2PossibleValues->toString());
 
@@ -741,7 +741,7 @@ bool CellSet::checkForNakedSubsets (int n) {
 
 	bool anyReductions = false;
 	int* nextPermutation;
-	while (nextPermutation = permutator.getNextPermutation()) {
+	while ((nextPermutation = permutator.getNextPermutation())) {
 		// Build a CellList from the permutation
 		CellList cellList;
 
@@ -888,7 +888,7 @@ bool CellSet::checkForHiddenSubsets (int n) {
 
 	bool anyReductions = false;
 	int* nextPermutation;
-	while (nextPermutation = permutator.getNextPermutation()) {
+	while ((nextPermutation = permutator.getNextPermutation())) {
 		IntList permutation(n, nextPermutation); // TBD: relationship between Permutator and IntList (g_N)
 
 		anyReductions |= checkForHiddenSubsets(permutation);
@@ -1345,7 +1345,7 @@ char* readGameFile (const char* filename) {
 	close(fd);
 
 	if (readLen < MIN_GAME_FILE_SIZE) {
-		TRACE(0, "Error: file not big enough (%d)\n", readLen);
+		TRACE(0, "Error: file not big enough (%ld)\n", readLen);
 		return NULL;
 	}
 

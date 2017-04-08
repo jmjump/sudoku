@@ -15,7 +15,7 @@ static void testPermutator () {
 	Permutator permutator(9);
 	for (int numInPermutation=0; numInPermutation<=9; numInPermutation++) {
 		TRACE(0, "\n");
-		TRACE(0, "Permutations with %d values from a set with %d values:\n", numInPermutation, ArraySize(values));
+		TRACE(0, "Permutations with %d values from a set with %lu values:\n", numInPermutation, ArraySize(values));
 		permutator.reset();
 
 		for (int i=0; i<ArraySize(values); i++) {
@@ -26,7 +26,7 @@ static void testPermutator () {
 
 		
 		int* permutation;
-		for (int i=1; permutation = permutator.getNextPermutation(); i++) {
+		for (int i=1; (permutation = permutator.getNextPermutation()); i++) {
 			TRACE(0, "Permutation %d:\n", i);
 			for (int j=0; j<numInPermutation; j++) {
 				TRACE(0, "    %d: %d\n", j, permutation[j]);
